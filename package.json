@@ -1,0 +1,17 @@
+{
+  "name": "laozhang-toolbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "老张工具箱 · Android App 壳（Capacitor）",
+  "scripts": {
+    "cap:sync": "cap sync android",
+    "android": "cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  }
+}

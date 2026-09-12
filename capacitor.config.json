@@ -1,0 +1,11 @@
+{
+  "appId": "com.homjanon.toolbox",
+  "appName": "老张工具箱",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
