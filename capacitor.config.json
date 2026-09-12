@@ -6,6 +6,13 @@
     "allowMixedContent": false
   },
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "allowNavigation": [
+      "hellohopo.dpdns.org",
+      "*.hellohopo.dpdns.org",
+      "homjanon.github.io",
+      "*.github.io",
+      "news.google.com"
+    ]
   }
 }

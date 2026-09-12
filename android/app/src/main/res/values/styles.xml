@@ -13,6 +13,10 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- 2026-09-12 用户反馈：标题贴到状态栏。让窗口内容避开系统栏（状态栏），
+             并退出 Android 15 的强制 edge-to-edge；WebView 内再配 env(safe-area-inset-top) 兜底 -->
+        <item name="android:fitsSystemWindows">true</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
     </style>
 
 

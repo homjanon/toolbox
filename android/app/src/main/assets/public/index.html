@@ -11,7 +11,7 @@
   body{margin:0;background:var(--bg);color:var(--ink);
     font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
     padding-bottom:env(safe-area-inset-bottom)}
-  .wrap{max-width:560px;margin:0 auto;padding:20px 16px 40px}
+  .wrap{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top, 0px) + 24px) 16px 40px}
   header{padding:6px 2px 4px}
   h1{font-size:22px;margin:0;letter-spacing:-.3px}
   .sub{color:var(--ink2);font-size:13px;margin-top:3px}
@@ -76,7 +76,8 @@ function render(cfg) {
   var grid = document.getElementById('grid');
   grid.innerHTML = list.map(function (m) {
     var ph = (m.app && m.app.phase) || 4;
-    return '<a class="card" data-url="' + esc(m.url) + '" style="--accent:' + esc(m.accent || '#2563eb') + '">' +
+    var target = (m.app && m.app.appUrl) || m.url;   /* App 内专用地址（如新闻卡指向早咖啡/下午茶） */
+    return '<a class="card" data-url="' + esc(target) + '" style="--accent:' + esc(m.accent || '#2563eb') + '">' +
       '<div class="ico">' + esc(m.icon || '🔗') + '</div>' +
       '<h2>' + esc(m.name) + '</h2>' +
       '<p class="desc">' + esc(m.desc) + '</p>' +

@@ -34,7 +34,8 @@ window.FALLBACK_MODULES = {
       "app": {
         "phase": 1,
         "mode": "native-news",
-        "note": "App 内为原生新闻流，读独立新闻源 news-feed"
+        "appUrl": "https://homjanon.github.io/news-feed/",
+        "note": "App 内新闻卡指向早咖啡/下午茶双页签阅读页；网页版日报仍走 url"
       }
     },
     {
