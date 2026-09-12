@@ -24,6 +24,12 @@
 
         </activity>
 
+        <!-- 模块容器：带返回/首页顶栏的原生 WebView 页 -->
+        <activity
+            android:name=".ModuleActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:theme="@style/AppTheme.NoActionBar" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

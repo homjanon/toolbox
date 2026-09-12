@@ -23,6 +23,21 @@ window.FALLBACK_MODULES = {
   ],
   "modules": [
     {
+      "id": "news-daily",
+      "name": "早咖啡 / 下午茶",
+      "desc": "谷歌+联合早报 各10条 · AI摘要 · 每天 07:00 / 15:20",
+      "url": "https://homjanon.github.io/news-feed/",
+      "icon": "☕",
+      "accent": "#0d9488",
+      "group": "finance",
+      "nav": false,
+      "app": {
+        "phase": 1,
+        "mode": "webview",
+        "note": "一期内置新闻页（独立新闻源 news-feed）"
+      }
+    },
+    {
       "id": "portfolio",
       "name": "全球金融市场日报",
       "desc": "A/港/美/全球指数、商品、汇率 · 每日更新",
@@ -33,9 +48,8 @@ window.FALLBACK_MODULES = {
       "nav": true,
       "app": {
         "phase": 1,
-        "mode": "native-news",
-        "appUrl": "https://homjanon.github.io/news-feed/",
-        "note": "App 内新闻卡指向早咖啡/下午茶双页签阅读页；网页版日报仍走 url"
+        "mode": "webview",
+        "note": "完整图文日报（网页同源）"
       }
     },
     {
