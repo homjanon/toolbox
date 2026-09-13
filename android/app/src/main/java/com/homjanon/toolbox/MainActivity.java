@@ -16,20 +16,20 @@ import com.getcapacitor.BridgeActivity;
 /**
  * 宫格首页（根页面）。
  *
- * 2026-09-13 演进记录：
- *   ① insets 避让 —— 此前完全没处理，Android 15 强制全屏延伸下内容顶到状态栏底下；
- *   ② 返回手势「连滑两次退出」（manifest 已设 enableOnBackInvokedCallback=false 锁定旧分发路径）；
- *   ③ 【v0.5】加原生 JS 接口 AndroidToolbox —— 因为实测注入 WebView 的 native-bridge.js 里
- *      **没有 registerPlugin**（core 的构建产物才有），前端无打包器时只能走 cap.nativePromise
- *      这条底层通道；为了不再赌单一路径，这里再铺一条完全独立的原生通道做兜底：
- *      JS 依次尝试 cap.nativePromise → window.AndroidToolbox → location.href。
+ * ⚠️ v0.6 关键修复（2026-09-13，源码级定位）：
+ *   `registerPlugin()` **必须在 `super.onCreate()` 之前调用**。
+ *   看 Capacitor 的 BridgeActivity 源码：super.onCreate() 内部会执行 load()，
+ *   而 load() 里 `bridge = bridgeBuilder.addPlugins(...).create()` —— bridge 一旦 create 就定型，
+ *   之后再 registerPlugin() 只是往 builder 里加，永远不会被采纳。
+ *   症状：原生插件没注册 → JS 的 nativePromise 调用被拒绝 → 前端若"调用即当作成功"，
+ *   表现就是"点了卡片没反应"。本项目 v0.4/v0.5 两个板块打不开正是这个原因。
  */
 public class MainActivity extends BridgeActivity {
 
     private static final long EXIT_WINDOW_MS = 2000;
     private long lastBackAt = 0;
 
-    /** 暴露给网页的原生接口（仅带 @JavascriptInterface 注解的方法可被调用） */
+    /** 暴露给网页的原生兜底接口（与 Capacitor 插件系统完全独立，Capacitor 内部怎么变都不影响） */
     private class NativeBridge {
         @JavascriptInterface
         public void openModule(final String url, final String name) {
@@ -39,10 +39,11 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    @SuppressLint("SetJavaScriptEnabled")
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    protected void onCreate(Bundle savedInstanceState) {
+        /* ★ 必须在 super.onCreate() 之前：此时 bridge 还没 create，插件才会被采纳 */
         registerPlugin(ModulePlugin.class);
+
+        super.onCreate(savedInstanceState);
 
         /* 状态栏 / 手势条避让：让 WebView 整体待在系统栏之内 */
         View content = findViewById(android.R.id.content);
@@ -52,10 +53,23 @@ public class MainActivity extends BridgeActivity {
             return insets;
         });
 
-        /* 原生兜底通道：给首页注入 window.AndroidToolbox.openModule(url, name) */
-        WebView wv = getBridge() != null ? getBridge().getWebView() : null;
-        if (wv != null) {
+        addJsInterface();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        addJsInterface();   // 兜底：某些时序下 bridge 尚未就绪，这里再补一次
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void addJsInterface() {
+        try {
+            WebView wv = getBridge() != null ? getBridge().getWebView() : null;
+            if (wv == null) return;
             wv.addJavascriptInterface(new NativeBridge(), "AndroidToolbox");
+        } catch (Exception ignored) {
+            // 静默：上层还有 Capacitor 插件通道可用
         }
     }
 
