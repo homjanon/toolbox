@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>老张工具箱</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1f2430;--ink2:#5a6472;--ink3:#8b95a3;
+    --line:#e4e8ee;--blue:#2563eb;--blue-l:#eef4ff}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    padding-bottom:env(safe-area-inset-bottom)}
+  .wrap{max-width:560px;margin:0 auto;padding:28px 16px 40px}
+  header{padding:6px 2px 4px}
+  h1{font-size:22px;margin:0;letter-spacing:-.3px}
+  .sub{color:var(--ink2);font-size:13px;margin-top:3px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}
+  .card{display:block;text-decoration:none;color:inherit;background:var(--card);
+    border:1px solid var(--line);border-radius:16px;padding:16px 14px;
+    position:relative;overflow:hidden;box-shadow:0 1px 3px rgba(16,24,40,.05);
+    transition:transform .08s}
+  .card:active{transform:scale(.97)}
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
+  .card .ico{font-size:26px;line-height:1}
+  .card h2{font-size:15px;margin:9px 0 4px;font-weight:700}
+  .card .desc{color:var(--ink2);font-size:12px;margin:0 0 8px;line-height:1.5;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 7px;
+    background:var(--blue-l);color:var(--blue)}
+  .pill.p4{background:#f2f0fd;color:#7c3aed}
+  .foot{color:var(--ink3);font-size:11.5px;text-align:center;margin-top:30px;line-height:1.8}
+  .offline{margin:14px 2px 0;font-size:11.5px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🧰 老张工具箱</h1>
+    <div class="sub" id="sub">模块清单加载中…</div>
+  </header>
+  <div class="grid" id="grid"></div>
+  <div class="offline" id="offlineTip" style="display:none"></div>
+  <div class="foot">老张工具箱 App · 数据与网页同源<br>仅供研究参考，不构成投资建议</div>
+</div>
+
+<script>
+/* 模块清单三级取数（与 nav 首页同套路）：
+   ① 直连 hellohopo.dpdns.org ② Cloudflare 代理（proxy.hellohopo.dpdns.org，no-store）
+   ③ 打包进 App 的内置兜底（window.FALLBACK_MODULES，见 modules.js） */
+var PROXY_URL = 'https://proxy.hellohopo.dpdns.org/?url=';
+var REMOTE = 'https://hellohopo.dpdns.org/modules.json';
+var PHASE_NAME = { 1: '一期 · 内置', 2: '一期 · 资产', 4: '一期后续' };
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+}
+function getJSON(u, ms) {
+  return new Promise(function (resolve, reject) {
+    var ctl = new AbortController();
+    var t = setTimeout(function () { ctl.abort(); reject(new Error('timeout')); }, ms || 8000);
+    fetch(u + (u.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now(), { signal: ctl.signal })
+      .then(function (r) { clearTimeout(t); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(resolve, reject);
+  });
+}
+/* ① 直连 → ② 代理 → ③ 兜底（失败静默，App必须总能显示宫格） */
+function loadModules() {
+  return getJSON(REMOTE, 8000)
+    .catch(function () { return getJSON(PROXY_URL + encodeURIComponent(REMOTE), 10000); })
+    .catch(function () { return Promise.resolve(window.FALLBACK_MODULES); });
+}
+function render(cfg) {
+  var list = (cfg.modules || []).filter(function (m) { return m.url; });
+  var grid = document.getElementById('grid');
+  grid.innerHTML = list.map(function (m) {
+    var ph = (m.app && m.app.phase) || 4;
+    var target = (m.app && m.app.appUrl) || m.url;   /* App 内专用地址（如新闻卡指向早咖啡/下午茶） */
+    return '<a class="card" data-url="' + esc(target) + '" style="--accent:' + esc(m.accent || '#2563eb') + '">' +
+      '<div class="ico">' + esc(m.icon || '🔗') + '</div>' +
+      '<h2>' + esc(m.name) + '</h2>' +
+      '<p class="desc">' + esc(m.desc) + '</p>' +
+      '<span class="pill' + (ph >= 4 ? ' p4' : '') + '">' + (PHASE_NAME[ph] || '已收纳') + '</span>' +
+    '</a>';
+  }).join('');
+  document.getElementById('sub').textContent =
+    '共 ' + list.length + ' 个模块 · 清单 v' + (cfg.version || '?');
+  var launcher = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ModuleLauncher;
+  Array.prototype.forEach.call(grid.children, function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var target = a.getAttribute('data-url');
+      var name = (a.querySelector('h2') || {}).textContent || '';
+      /* 原生模块容器（带返回/首页顶栏）；网页预览时退化为当前页跳转 */
+      if (launcher && typeof launcher.open === 'function') {
+        launcher.open({ url: target, name: name });
+      } else {
+        window.location.href = target;
+      }
+    });
+  });
+}
+loadModules().then(function (cfg) {
+  render(cfg);
+  if (cfg.__fallback) {
+    var tip = document.getElementById('offlineTip');
+    tip.style.display = 'block';
+    tip.textContent = '（在线清单暂不可达，已使用内置兜底清单）';
+  }
+});
+</script>
+<script src="modules.js"></script>
+</body>
+</html>

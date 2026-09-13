@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.WebResourceRequest;
@@ -20,11 +19,15 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 /**
- * 模块容器：顶栏（‹返回 | 标题 | 首页⌂）+ WebView。
- * 解决三件事：
- *   ① 显式返回按钮；系统左滑手势 = 关闭本页回宫格（页内历史用左上角‹返回）
- *   ② 标题与状态栏保持距离（insets 顶垫，全部 Android 版本生效）
- *   ③ 模块页与宫格视觉一致
+ * 模块容器：极简顶栏（左「‹返回」、右「⌂首页」）+ WebView。
+ *
+ * 2026-09-13 变更（按用户反馈）：
+ *   ① 去掉顶栏中间的模块名 —— 页面自身已有标题，顶栏再显示一遍会出现"上下两个标题"；
+ *   ② 删掉 setFitsSystemWindows(true)：它与下面的 insets 监听器冲突（fitsSystemWindows 自行消费 insets，
+ *      监听器形同虚设），导致整页从屏幕最顶端渲染、被状态栏压住、inv 头部按钮被切；
+ *   ③ 接管返回：先页内后退，退到底才关闭本页回宫格（贴合微信那种"左滑=返回上一页"的手感）。
+ *      走 onBackPressed 而非 OnBackInvokedCallback —— manifest 里显式
+ *      android:enableOnBackInvokedCallback="false" 锁死旧分发路径，各版本行为一致可预期。
  */
 public class ModuleActivity extends AppCompatActivity {
 
@@ -50,36 +53,25 @@ public class ModuleActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         String url = getIntent().getStringExtra("url");
-        String name = getIntent().getStringExtra("name");
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xFFF6F7F9);
-        root.setFitsSystemWindows(true);
+        // 注意：这里不能 setFitsSystemWindows(true)，否则下方 insets 监听器失效
 
-        /* ── 顶栏：‹返回 | 标题 | ⌂首页 ── */
+        /* ── 极简顶栏：左「‹ 返回」 …… 右「⌂ 首页」 ── */
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(10), dp(8), dp(10));
+        bar.setPadding(dp(12), dp(11), dp(12), dp(11));
         bar.setBackgroundColor(0xFFFFFFFF);
 
         TextView back = navText("‹ 返回");
         back.setOnClickListener(v -> onBack());
         bar.addView(back);
 
-        TextView title = new TextView(this);
-        title.setText(name);
-        title.setTextSize(16.5f);
-        title.setTextColor(0xFF1F2430);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        title.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        tp.setMargins(dp(10), 0, dp(10), 0);
-        bar.addView(title, tp);
+        View spacer = new View(this);
+        bar.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));   // 中间留空（不再显示模块名）
 
         TextView home = navText("⌂ 首页");
         home.setOnClickListener(v -> finish());
@@ -110,7 +102,7 @@ public class ModuleActivity extends AppCompatActivity {
 
         setContentView(root);
 
-        /* 状态栏/手势条 insets：顶栏避让，所有 Android 版本生效 */
+        /* 状态栏 / 手势条 insets：顶栏避让状态栏，底部避让手势条（各 Android 版本一致生效） */
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             Insets s = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(0, s.top, 0, s.bottom);
@@ -118,6 +110,12 @@ public class ModuleActivity extends AppCompatActivity {
         });
 
         if (url != null) webView.loadUrl(url);
+    }
+
+    /** 返回：先页内后退，退到底再关闭本页（回到宫格） */
+    @Override
+    public void onBackPressed() {
+        onBack();
     }
 
     private void onBack() {
@@ -128,9 +126,9 @@ public class ModuleActivity extends AppCompatActivity {
     private TextView navText(String text) {
         TextView t = new TextView(this);
         t.setText(text);
-        t.setTextSize(14.5f);
+        t.setTextSize(15f);
         t.setTextColor(0xFF2563EB);
-        t.setPadding(dp(6), dp(4), dp(6), dp(4));
+        t.setPadding(dp(8), dp(5), dp(8), dp(5));
         t.setClickable(true);
         return t;
     }

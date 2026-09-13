@@ -7,7 +7,11 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="false"
         android:theme="@style/AppTheme">
+        <!-- enableOnBackInvokedCallback=false：显式退出 Android 13+ 的预测式返回新分发，
+             让返回统一走 onBackPressed，MainActivity 的「再滑一次退出」与
+             ModuleActivity 的「页内后退」才能在各版本行为一致 -->
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
