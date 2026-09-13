@@ -21,13 +21,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
@@ -78,14 +78,14 @@ jobs:
 
       - name: 上传 debug 构建产物
         if: steps.bt.outputs.type == 'debug'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: toolbox-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
 
       - name: 发布 Release（tag 推送时）
         if: startsWith(github.ref, 'refs/tags/v') && steps.bt.outputs.type == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             android/app/build/outputs/apk/release/*.apk

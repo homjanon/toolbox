@@ -77,6 +77,9 @@
   .tag{font-size:11.5px;font-weight:600;color:var(--blue);background:#eef4ff;border-radius:8px;padding:3px 9px}
 
   /* ── 底部 ── */
+  .tip{display:none;margin:0 2px 14px;padding:11px 13px;border-radius:12px;font-size:12.5px;
+    line-height:1.6;background:#fffbeb;border:1px solid #fde68a;color:#92400e;
+    position:relative;z-index:1}
   .foot{margin-top:26px;text-align:center;color:var(--ink3);font-size:11.5px;line-height:1.9}
   .more{
     margin-top:18px;display:block;text-align:center;color:var(--ink2);font-size:13px;
@@ -93,6 +96,8 @@
       <h1>工具箱</h1>
       <div class="date" id="today">—</div>
     </div>
+
+    <div class="tip" id="nativeTip"></div>
 
     <div class="cards">
 
@@ -154,20 +159,51 @@
           : H < 18 ? '下午好，老张' : '晚上好，老张';
 })();
 
-/* 打开模块：原生模块容器（带返回/首页顶栏）；网页预览时退化为跳转 */
+/* 打开模块 → Capacitor 原生容器页 ModuleActivity（带「‹返回 / ⌂首页」顶栏）。
+   ⚠️ 2026-09-13 修复：Capacitor 7 的 Capacitor.Plugins 是【普通对象】而非 Proxy，
+      本地插件必须先经 Capacitor.registerPlugin('名字') 注册才会挂上去。
+      此前直接读 Plugins.ModuleLauncher 得到 undefined → 静默降级成 location.href →
+      模块被开在主 WebView 里（没有顶栏）。根因已查实，改用官方注册通道。 */
 (function () {
-  var launcher = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ModuleLauncher;
+  var cap = window.Capacitor || {};
+  var inApp = typeof cap.isNativePlatform === 'function' && cap.isNativePlatform();
+
+  function getLauncher() {
+    try {
+      if (typeof cap.registerPlugin !== 'function') return null;
+      if (cap.Plugins && cap.Plugins.ModuleLauncher) return cap.Plugins.ModuleLauncher;
+      return cap.registerPlugin('ModuleLauncher');
+    } catch (e) { return null; }
+  }
+  function tip(msg) {
+    var el = document.getElementById('nativeTip');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = msg;
+  }
+  function openModule(url, name) {
+    var P = getLauncher();
+    if (P && typeof P.open === 'function') {
+      try { P.open({ url: url, name: name }); return true; } catch (e) { /* 落到下面提示 */ }
+    }
+    // 在 App 内却拿不到原生通道：**不再静默降级**，页面顶部提示（便于当场发现与排查）
+    if (inApp) tip('⚠️ 未能调用原生容器（ModuleLauncher 不可用），本次已用内置浏览器打开、可能没有返回/首页按钮。请把这条提示反馈给开发者。');
+    return false;
+  }
   function bind(id, nameGetter) {
     var el = document.getElementById(id);
+    if (!el) return;
     el.addEventListener('click', function (ev) {
       ev.preventDefault();
       var url = el.getAttribute('data-url');
-      if (launcher && typeof launcher.open === 'function') launcher.open({ url: url, name: nameGetter() });
-      else window.location.href = url;
+      if (openModule(url, nameGetter())) return;
+      window.location.href = url;       // 降级：至少保证可用（网页预览也走这里）
     });
   }
   bind('cardNews', function () { return '早咖啡 · 下午茶'; });
   bind('cardInv',  function () { return '个人资产管理'; });
+
+  if (inApp && !getLauncher()) tip('⚠️ 未检测到原生容器通道，模块将以网页方式打开（无返回/首页按钮）。');
 })();
 
 /* 新闻卡实时状态：homjanon.github.io 带 CORS *，App 内可直连 */
