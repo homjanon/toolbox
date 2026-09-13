@@ -57,9 +57,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {   // 必须 public：父类 BridgeActivity.onResume() 是 public，不可缩小访问级别
         super.onResume();
-        addJsInterface();   // 兜底：某些时序下 bridge 尚未就绪，这里再补一次
+        addJsInterface();      // 兜底：某些时序下 bridge 尚未就绪，这里再补一次
     }
 
     @SuppressLint("SetJavaScriptEnabled")
