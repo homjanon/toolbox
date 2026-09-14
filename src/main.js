@@ -94,7 +94,22 @@ function setupTabs() {
 }
 
 /* ───────────── 新闻（原生渲染） ───────────── */
-let currentEdition = 'morning';
+let currentEdition = 'afternoon';
+
+/* 最近一场：15:00–22:29 看「下午茶」，其余时间看「夜豆浆」（与网页阅读页一致） */
+function defaultEdition() {
+  const nb = new Date(Date.now() + 8 * 3600e3);
+  const h = nb.getUTCHours(), mi = nb.getUTCMinutes();
+  return (h >= 15 && (h < 22 || (h === 22 && mi < 30))) ? 'afternoon' : 'night';
+}
+
+function syncSeg(edition) {
+  const seg = $('seg');
+  if (!seg) return;
+  Array.from(seg.querySelectorAll('button')).forEach((b) => {
+    b.classList.toggle('on', b.getAttribute('data-ed') === edition);
+  });
+}
 
 function newsItemHTML(it) {
   /* 「新」标放在 meta 行：放标题里遇到长标题会被挤到第二行，排版不整 */
@@ -227,7 +242,9 @@ setupSeg();
 setupAsset();
 setupMine();
 renderTools();
-loadNews('morning');
+const startEdition = defaultEdition();
+syncSeg(startEdition);
+loadNews(startEdition);
 setupNative();
 
 if (inApp && !window.AndroidToolbox && typeof ModuleLauncher.open !== 'function') {
