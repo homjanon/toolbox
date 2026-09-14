@@ -7,63 +7,91 @@
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <div class="top-pad"></div>
-  <div class="wrap">
+<div class="app">
 
-    <div class="head">
-      <div class="hello" id="hello">早上好，老张</div>
-      <h1>工具箱</h1>
-      <div class="date" id="today">—</div>
-    </div>
+  <!-- 顶栏：标题居中（随 Tab 变化） -->
+  <header class="topbar"><h1 id="title">新闻</h1></header>
 
-    <div class="tip" id="nativeTip"></div>
+  <main class="content" id="content">
 
-    <div class="cards">
+    <!-- ① 新闻（默认）：原生渲染，读 news-feed -->
+    <section class="pane on" id="pane-news">
+      <div class="tip" id="nativeTip"></div>
+      <div class="seg" id="seg">
+        <button class="on" data-ed="morning">☕ 早咖啡</button>
+        <button data-ed="afternoon">🍵 下午茶</button>
+      </div>
+      <div class="list" id="newsList">
+        <div class="empty">加载中…</div>
+      </div>
+    </section>
 
-      <!-- ① 早咖啡 / 下午茶 -->
-      <a class="feat news" id="cardNews" href="#" data-url="https://homjanon.github.io/news-feed/">
-        <div class="row">
-          <div class="ico">☕</div>
-          <div>
-            <div class="ttl">早咖啡 · 下午茶</div>
-            <div class="sub" id="newsSub">谷歌 + 联合早报 · 各 10 条 AI 摘要</div>
-          </div>
-          <div class="chev">›</div>
-        </div>
-        <div class="sessions">
-          <div class="pill" id="pillAm">
-            <div class="n"><span class="dot wait"></span>早咖啡</div>
-            <div class="t" id="amTime">待更新</div>
-          </div>
-          <div class="pill" id="pillPm">
-            <div class="n"><span class="dot wait"></span>下午茶</div>
-            <div class="t" id="pmTime">15:20</div>
-          </div>
-        </div>
-      </a>
+    <!-- ② 资产：入口卡 + 概览，点进全屏容器 -->
+    <section class="pane" id="pane-asset">
+      <div class="hero" id="cardInv">
+        <div class="h1">个人资产管理</div>
+        <div class="h2">持仓 · 盈亏 · 分红 · 云端同步</div>
+        <div class="btn">打开资产管理系统 ›</div>
+      </div>
+      <div class="grid2">
+        <div class="mini"><div class="k">持仓标的</div><div class="v">A股 / 港股 / 美股</div></div>
+        <div class="mini"><div class="k">数据同步</div><div class="v s">Gitee 快照</div></div>
+        <div class="mini"><div class="k">净值 / QDII</div><div class="v s">在系统内查看</div></div>
+        <div class="mini"><div class="k">记一笔</div><div class="v s">在系统内操作</div></div>
+      </div>
+    </section>
 
-      <!-- ② 个人资产管理 -->
-      <a class="feat inv" id="cardInv" href="#" data-url="https://inv.hellohopo.dpdns.org/">
-        <div class="row">
-          <div class="ico">💼</div>
-          <div>
-            <div class="ttl">个人资产管理</div>
-            <div class="sub">持仓 · 盈亏 · 云端同步</div>
-          </div>
-          <div class="chev">›</div>
-        </div>
-        <div class="tags">
-          <span class="tag">A股</span><span class="tag">港股</span>
-          <span class="tag">美股</span><span class="tag">场外基金</span>
-        </div>
-      </a>
+    <!-- ③ 工具：现有全部模块（清单见 src/modules.mjs） -->
+    <section class="pane" id="pane-tools">
+      <div class="sect">金融 · 投资</div>
+      <div class="tgrid" id="gridFinance"></div>
+      <div class="sect" style="margin-top:16px">学习 · 其他</div>
+      <div class="tgrid" id="gridOther"></div>
+    </section>
 
-    </div>
+    <!-- ④ 我的：设置入口 -->
+    <section class="pane" id="pane-mine">
+      <div class="list2">
+        <div class="lrow" id="rowSync"><span class="li">🔄</span>云同步设置<span class="lv">Gitee ›</span></div>
+        <div class="lrow" id="rowNotify"><span class="li">🔔</span>新闻通知<span class="lv">07:00 / 15:20</span></div>
+        <div class="lrow" id="rowRead"><span class="li">✅</span>已读标记<span class="lv">待开发</span></div>
+        <div class="lrow" id="rowTheme"><span class="li">🌓</span>外观<span class="lv">跟随系统</span></div>
+        <div class="lrow" id="rowDiag"><span class="li">🩺</span>诊断信息<span class="lv">›</span></div>
+        <div class="lrow" id="rowAbout"><span class="li">ℹ️</span>关于<span class="lv" id="verLabel">v0.7 ›</span></div>
+      </div>
+    </section>
 
-    <div class="foot">
-      老张工具箱 · 一期<br>仅供研究参考，不构成投资建议
+  </main>
+
+  <!-- 底部四 Tab -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab on" data-pane="news">
+      <svg viewBox="0 0 24 24"><path d="M4 5h13v14H4z"/><path d="M17 8h3v9a2 2 0 0 1-2 2"/><path d="M7 9h7M7 12h7M7 15h4"/></svg>
+      新闻
+    </button>
+    <button class="tab" data-pane="asset">
+      <svg viewBox="0 0 24 24"><path d="M3 7h18v12H3z"/><path d="M3 11h18"/><path d="M7 15h4"/></svg>
+      资产
+    </button>
+    <button class="tab" data-pane="tools">
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
+      工具
+    </button>
+    <button class="tab" data-pane="mine">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20c1.5-3.6 4.2-5.2 7.2-5.2s5.7 1.6 7.2 5.2"/></svg>
+      我的
+    </button>
+  </nav>
+
+  <!-- 弹层 -->
+  <div class="mask" id="mask">
+    <div class="sheet">
+      <h2 id="sheetTitle">信息</h2>
+      <pre id="sheetBody"></pre>
+      <button class="close" id="sheetClose">关闭</button>
     </div>
   </div>
+</div>
 
 <script type="module" src="./main.js"></script>
 </body>
