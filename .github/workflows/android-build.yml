@@ -36,6 +36,9 @@ jobs:
       - name: 安装依赖
         run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
+      - name: 打包前端（Vite：src/ → www/）
+        run: npm run build
+
       - name: 同步 web 资源到 android
         run: npx cap sync android
 

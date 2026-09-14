@@ -4,14 +4,19 @@
   "private": true,
   "description": "老张工具箱 · Android App 壳（Capacitor）",
   "scripts": {
-    "cap:sync": "cap sync android",
-    "android": "cap open android"
+    "build": "vite build",
+    "sync": "npm run build && node cap.js sync android",
+    "cap": "node cap.js",
+    "android": "node cap.js open android"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.0.0"
+    "@capacitor/cli": "^7.0.0",
+    "vite": "^8.3.0"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
-    "@capacitor/core": "^7.0.0"
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.6"
   }
 }
