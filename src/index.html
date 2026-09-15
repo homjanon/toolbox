@@ -26,23 +26,51 @@
       </div>
     </section>
 
-    <!-- ② 资产：入口卡 + 概览，点进全屏容器 -->
+    <!-- ② 资产：入口卡 + 四格（内容按「资产板块设置」渲染） -->
     <section class="pane" id="pane-asset">
       <div class="hero" id="cardInv">
         <div class="h1">个人资产管理</div>
         <div class="h2">持仓 · 盈亏 · 分红 · 云端同步</div>
         <div class="btn">打开资产管理系统 ›</div>
       </div>
-      <div class="grid2">
-        <div class="mini"><div class="k">持仓标的</div><div class="v">A股 / 港股 / 美股</div></div>
-        <div class="mini"><div class="k">数据同步</div><div class="v s">Gitee 快照</div></div>
-        <div class="mini"><div class="k">净值 / QDII</div><div class="v s">在系统内查看</div></div>
-        <div class="mini"><div class="k">记一笔</div><div class="v s">在系统内操作</div></div>
+
+      <div class="g4">
+        <div class="card">
+          <div class="t"><span class="dot"></span>A股大盘</div>
+          <div class="rows" id="gridMarket"><div class="ph">加载中…</div></div>
+        </div>
+        <div class="card">
+          <div class="t"><span class="dot" style="background:#e6a23c"></span>我的持仓</div>
+          <div class="rows" id="gridHold"><div class="ph">加载中…</div></div>
+        </div>
+        <div class="card wide">
+          <div class="t"><span class="dot" style="background:#7c3aed"></span>估值水位
+            <span class="hint">PE 历史百分位 · 越红越贵</span></div>
+          <div class="vrows" id="gridVal"><div class="ph">加载中…</div></div>
+        </div>
+        <div class="card wide">
+          <div class="t"><span class="dot" style="background:#dc2626"></span>海外投资
+            <span class="hint">场内取溢价最小 · 场外取额度最高</span></div>
+          <div class="two">
+            <div><div class="subt">场内 ETF</div><div class="rows" id="gridEtf"><div class="ph">加载中…</div></div></div>
+            <div><div class="subt">场外 QDII</div><div class="rows" id="gridOd"><div class="ph">加载中…</div></div></div>
+          </div>
+        </div>
       </div>
+
+      <div class="stamp" id="assetStamp"></div>
     </section>
 
-    <!-- ③ 工具：现有全部模块（清单见 src/modules.mjs） -->
+    <!-- ③ 工具：资产板块设置 + 现有全部模块 -->
     <section class="pane" id="pane-tools">
+      <div class="entry" id="rowAssetCfg">
+        <span class="ei">⚙️</span>
+        <div class="etx">
+          <div class="et">资产板块设置</div>
+          <div class="ed">选择四个板块各显示哪些标的</div>
+        </div>
+        <span class="ea">›</span>
+      </div>
       <div class="sect">金融 · 投资</div>
       <div class="tgrid" id="gridFinance"></div>
       <div class="sect" style="margin-top:16px">学习 · 其他</div>
@@ -57,7 +85,7 @@
         <div class="lrow" id="rowRead"><span class="li">✅</span>已读标记<span class="lv">待开发</span></div>
         <div class="lrow" id="rowTheme"><span class="li">🌓</span>外观<span class="lv">跟随系统</span></div>
         <div class="lrow" id="rowDiag"><span class="li">🩺</span>诊断信息<span class="lv">›</span></div>
-        <div class="lrow" id="rowAbout"><span class="li">ℹ️</span>关于<span class="lv" id="verLabel">v0.7 ›</span></div>
+        <div class="lrow" id="rowAbout"><span class="li">ℹ️</span>关于<span class="lv" id="verLabel">v0.8 ›</span></div>
       </div>
     </section>
 
@@ -83,12 +111,25 @@
     </button>
   </nav>
 
-  <!-- 弹层 -->
+  <!-- 弹层：诊断 / 关于 -->
   <div class="mask" id="mask">
     <div class="sheet">
       <h2 id="sheetTitle">信息</h2>
       <pre id="sheetBody"></pre>
       <button class="close" id="sheetClose">关闭</button>
+    </div>
+  </div>
+
+  <!-- 弹层：资产板块设置 -->
+  <div class="mask" id="cfgMask">
+    <div class="sheet cfg">
+      <h2>资产板块设置</h2>
+      <div class="cfgnote">点选/取消即可，设置只存在本机（不上传）。格子上限：大盘 3 · 持仓 6 · 估值 4 · 海外 3 类。</div>
+      <div id="cfgBody"></div>
+      <div class="cfgfoot">
+        <button class="ghost" id="cfgReset">恢复默认</button>
+        <button class="close" id="cfgClose">完成</button>
+      </div>
     </div>
   </div>
 </div>

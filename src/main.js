@@ -1,25 +1,59 @@
 /* 老张工具箱 · 首页逻辑
-   ── 2026-09-14 v0.7：底部四 Tab 框架 ──
-   新闻：原生渲染（读 news-feed JSON）  资产：入口卡 → 原生容器全屏
-   工具：现有全部模块                   我的：设置入口
-   原生调用通道优先级（沿用 v0.6 已验证的顺序，不动）：
+   ── v0.8（2026-09-15）──
+   ① 资产四格接入真实数据（market-live 行情/估值 + portfolio 的 QDII 溢价与额度）
+   ② 四格内容可在「工具 → 资产板块设置」自己勾选（存本机；默认值＝与用户确认的清单）
+   ③ 取数统一首选经 proxy.hellohopo.dpdns.org 代理，失败再试直连，都失败则显示空值（不显示假数字）
+   原生调用通道优先级（沿用 v0.6 已验证顺序，不动）：
      ① window.AndroidToolbox（原生 @JavascriptInterface，最稳）
-     ② 官方插件代理 registerPlugin（内部走桥，失败必须 catch 兜底）
+     ② 官方插件代理 registerPlugin（桥，失败必须 catch）
      ③ location.href（网页预览 / 最终兜底） */
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.7';
-const NEWS_BASE = 'https://homjanon.github.io/news-feed/';
+const APP_VERSION = 'v0.8';
+const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
+const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
+const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
+const SRC_QDII = 'https://raw.githubusercontent.com/homjanon/portfolio/main/qdii_prev.json';
 const INV_URL = 'https://inv.hellohopo.dpdns.org/';
 const FINANCE_IDS = ['portfolio', 'market-live', 'xiaoxu-fear', 'cmb-tracker', 'douban-tracker', 'qdii-nav-tracker'];
 
 const inApp = Capacitor.isNativePlatform();
 const ModuleLauncher = registerPlugin('ModuleLauncher');
-
 const $ = (id) => document.getElementById(id);
+
+/* ───────────── 四格配置 ───────────── */
+const CFG_KEY = 'toolbox.assetBoards.v1';
+const LIMITS = { market: 3, hold: 6, val: 4, overseas: 3 };
+const DEFAULT_CFG = {
+  market: ['上证指数', '沪深300', '创业板指'],
+  hold: ['红利低波', '纳斯达克100', '标普500', '30年国债ETF'],
+  val: ['中证红利低波', '沪深300', '中概互联50'],
+  overseas: ['标普500', '纳指100'],
+};
+/* 海外投资可选品类（数据源只覆盖这两个：各有场内 ETF 与场外 QDII 的溢价/额度） */
+const OVERSEAS_POOL = [
+  { key: '标普500', etf: ['513500', '513650', '159612'], od: ['007721', '007722', '008401', '096001', '017641'] },
+  { key: '纳指100', etf: ['513100', '159941', '159659'], od: ['019736', '019737', '018043', '018044', '019441'] },
+];
+/* QDII 代码 → 显示名（27 只，2026-09-15 经公开接口逐一核对） */
+const FUND_NAMES = {
+  513100: '纳指ETF国泰', 159941: '纳指ETF广发', 159659: '纳指100ETF招商',
+  513500: '标普500ETF博时', 513650: '标普500ETF南方', 159612: '标普500ETF国泰',
+  '007721': '天弘标普500(FOF)A', '007722': '天弘标普500(FOF)C',
+  '008401': '大成标普500C', '096001': '大成标普500A', '017641': '摩根标普500A',
+  '019736': '宝盈纳指100A', '019737': '宝盈纳指100C', '018043': '天弘纳指100A',
+  '018044': '天弘纳指100C', '019441': '万家纳指100A',
+};
+
+let CFG = { ...DEFAULT_CFG };
+let MARKET = null;      // market-live 原始数据
+let QDII = null;        // qdii_prev 原始数据
+let QUOTES = {};        // 归一化行情池：name -> {chg, ytd, kind}
+let VALS = {};          // 归一化估值池：name -> {pe, pe_pct, yield}
 
 /* ───────────── 通用 ───────────── */
 function tip(msg) {
@@ -34,6 +68,9 @@ function diagText(extra) {
     '平台：' + Capacitor.getPlatform() + (inApp ? '（App 内）' : '（浏览器）'),
     '原生接口 AndroidToolbox：' + (window.AndroidToolbox ? '有' : '无'),
     '插件代理 ModuleLauncher：' + (ModuleLauncher && typeof ModuleLauncher.open === 'function' ? '有' : '无'),
+    '行情数据：' + (MARKET ? MARKET.generated_at + '（market-live）' : '未取到'),
+    'QDII 数据：' + (QDII ? QDII.日期 + '（portfolio）' : '未取到'),
+    '四格配置：' + JSON.stringify(CFG),
     extra ? '备注：' + extra : '',
   ].filter(Boolean).join('\n');
 }
@@ -44,16 +81,22 @@ function sheet(title, body) {
   $('mask').classList.add('on');
 }
 
-async function getJSON(url, ms = 7000) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), ms);
-  try {
-    const r = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { signal: ctl.signal });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return await r.json();
-  } finally {
-    clearTimeout(timer);
-  }
+function beijingNow() { return new Date(Date.now() + 8 * 3600e3); }
+function beijingToday() { return beijingNow().toISOString().slice(0, 10); }
+
+/* 取数：一律先代理 → 失败直连 → 都失败抛错（调用方决定后续） */
+async function fetchJSON(url, ms = 9000) {
+  const tryOnce = async (u) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ms);
+    try {
+      const r = await fetch(u + (u.includes('?') ? '&' : '?') + 't=' + Date.now(), { signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } finally { clearTimeout(timer); }
+  };
+  try { return await tryOnce(PROXY + encodeURIComponent(url)); }
+  catch (e) { return await tryOnce(url); }
 }
 
 /* ───────────── 打开模块（原生容器） ───────────── */
@@ -96,10 +139,9 @@ function setupTabs() {
 /* ───────────── 新闻（原生渲染） ───────────── */
 let currentEdition = 'afternoon';
 
-/* 最近一场：15:00–22:29 看「下午茶」，其余时间看「夜豆浆」（与网页阅读页一致） */
+/* 最近一场：15:00–22:29 看「下午茶」，其余时间看「夜豆浆」（与抓取时刻一致） */
 function defaultEdition() {
-  const nb = new Date(Date.now() + 8 * 3600e3);
-  const h = nb.getUTCHours(), mi = nb.getUTCMinutes();
+  const nb = beijingNow(), h = nb.getUTCHours(), mi = nb.getUTCMinutes();
   return (h >= 15 && (h < 22 || (h === 22 && mi < 30))) ? 'afternoon' : 'night';
 }
 
@@ -111,24 +153,18 @@ function syncSeg(edition) {
   });
 }
 
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function newsItemHTML(it) {
-  /* 「新」标放在 meta 行：放标题里遇到长标题会被挤到第二行，排版不整 */
   const tag = it.isNew ? '<span class="badge-new">新</span>' : '';
   const src = it.source ? it.source + ' · ' : '';
   return '<div class="nitem" data-url="' + (it.url || '') + '">'
     + '<h3 class="ntitle">' + escapeHTML(it.title || '') + '</h3>'
     + '<p class="nsum">' + escapeHTML(it.summary || '') + '</p>'
     + '<div class="nmeta">' + tag + '<span>' + escapeHTML(src + (it.pubTime || '')) + '</span>'
-    + '<span class="go">原文 ›</span></div>'
-    + '</div>';
-}
-
-function escapeHTML(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function beijingToday() {
-  return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    + '<span class="go">原文 ›</span></div></div>';
 }
 
 async function loadNews(edition) {
@@ -138,10 +174,9 @@ async function loadNews(edition) {
   const today = beijingToday();
   let data = null, fallback = false;
   try {
-    data = await getJSON(NEWS_BASE + 'news/' + today + '-' + edition + '.json');
+    data = await fetchJSON(SRC_NEWS + 'news/' + today + '-' + edition + '.json');
   } catch (e) {
-    /* 当天该场还没生成 → 退回最新一场，并明确标注 */
-    try { data = await getJSON(NEWS_BASE + 'latest.json'); fallback = true; } catch (e2) { /* 下面统一处理 */ }
+    try { data = await fetchJSON(SRC_NEWS + 'latest.json'); fallback = true; } catch (e2) { /* 下面统一处理 */ }
   }
   if (!data || !data.items || !data.items.length) {
     list.innerHTML = '<div class="empty">暂时取不到新闻，请稍后再试</div>';
@@ -172,12 +207,10 @@ function setupSeg() {
 
 /* ───────────── 工具（现有全部模块） ───────────── */
 function toolCellHTML(m) {
-  /* 图标加统一底色（用模块自身主色的浅色调），让 emoji 风格各异的格子看起来是一套 */
   const bg = (m.accent || '#2563eb') + '1a';
   return '<div class="tcell" data-url="' + m.url + '" data-name="' + escapeHTML(m.name) + '">'
     + '<div class="tico" style="background:' + bg + '">' + m.icon + '</div>'
-    + '<div class="tname">' + escapeHTML(m.name) + '</div>'
-    + '</div>';
+    + '<div class="tname">' + escapeHTML(m.name) + '</div></div>';
 }
 
 function renderTools() {
@@ -190,63 +223,259 @@ function renderTools() {
   });
 }
 
-/* ───────────── 我的（设置入口） ───────────── */
+/* ───────────── 资产：数据 → 归一化池 ───────────── */
+function buildPools() {
+  QUOTES = {};
+  VALS = {};
+  if (!MARKET) return;
+  Object.entries(MARKET.indices || {}).forEach(([k, v]) => {
+    QUOTES[k] = { name: k, chg: v.chg, ytd: v.ytd, kind: 'index' };
+  });
+  (MARKET.us_quotes || []).forEach((q) => {
+    QUOTES[q.name] = { name: q.name, chg: q.chg, ytd: q.ytd, kind: 'us' };
+  });
+  Object.entries(MARKET.commodities || {}).forEach(([k, v]) => {
+    QUOTES[k] = { name: k, chg: v.chg, ytd: v.ytd, kind: 'cmd' };
+  });
+  Object.entries(MARKET.valuation || {}).forEach(([k, v]) => {
+    VALS[k] = { name: k, pe: v.pe, pe_pct: v.pe_pct, yield: v.yield };
+  });
+}
+
+const colorOf = (v) => (v === null || v === undefined) ? '#94a0ae' : (v > 0 ? '#dc2626' : (v < 0 ? '#16a34a' : '#5d6875'));
+const pct = (v, d = 2) => (v === null || v === undefined) ? '—' : (v > 0 ? '+' : '') + v.toFixed(d) + '%';
+
+function renderQuoteBoard(elId, names) {
+  const el = $(elId);
+  if (!el) return;
+  if (!names || !names.length) { el.innerHTML = '<div class="ph">未选标的（工具 → 资产板块设置）</div>'; return; }
+  el.innerHTML = names.map((n) => {
+    const q = QUOTES[n];
+    if (!q) return '<div class="r"><span class="nm">' + escapeHTML(n) + '</span><span class="ch">—</span></div>';
+    return '<div class="r"><span class="nm">' + escapeHTML(n) + '</span>'
+      + '<span class="ch" style="color:' + colorOf(q.chg) + '">' + pct(q.chg) + '</span></div>';
+  }).join('');
+}
+
+function renderValBoard(names) {
+  const el = $('gridVal');
+  if (!el) return;
+  if (!names || !names.length) { el.innerHTML = '<div class="ph">未选标的（工具 → 资产板块设置）</div>'; return; }
+  el.innerHTML = names.map((n) => {
+    const v = VALS[n];
+    if (!v || v.pe_pct === null || v.pe_pct === undefined) {
+      return '<div class="v"><span class="nm">' + escapeHTML(n) + '</span>'
+        + '<span class="bar"><i style="width:0"></i></span><span class="pv">—</span></div>';
+    }
+    const pv = Math.round(v.pe_pct * 100);
+    const c = pv >= 80 ? '#dc2626' : (pv >= 60 ? '#f59e0b' : '#16a34a');
+    return '<div class="v"><span class="nm">' + escapeHTML(n) + '</span>'
+      + '<span class="bar"><i style="width:' + pv + '%;background:' + c + '"></i></span>'
+      + '<span class="pv" style="color:' + c + '">' + pv + '%</span></div>';
+  }).join('');
+}
+
+/* 海外投资：场内取溢价最小 / 场外取额度最高 */
+function renderOverseas() {
+  const etfEl = $('gridEtf'), odEl = $('gridOd');
+  if (!etfEl || !odEl) return;
+  const picks = OVERSEAS_POOL.filter((o) => (CFG.overseas || []).includes(o.key));
+  if (!picks.length || !QDII) {
+    const m = '<div class="ph">' + (QDII ? '未选品类' : '数据加载中…') + '</div>';
+    etfEl.innerHTML = m; odEl.innerHTML = m;
+    return;
+  }
+  const etf = QDII['场内ETF'] || {}, od = QDII['场外QDII'] || {};
+  const etfRows = [], odRows = [];
+  picks.forEach((o) => {
+    const es = o.etf.map((c) => ({ c, v: (etf[c] || {})['溢价率'] }))
+      .filter((x) => x.v !== null && x.v !== undefined).sort((a, b) => a.v - b.v);
+    if (es.length) {
+      etfRows.push('<div class="r"><span class="nm">' + o.key + '</span>'
+        + '<span class="ch" style="color:' + colorOf(es[0].v) + '">' + pct(es[0].v) + '</span></div>'
+        + '<div class="nmx">' + escapeHTML(FUND_NAMES[es[0].c] || es[0].c) + '</div>');
+    }
+    const os = o.od.map((c) => ({ c, v: (od[c] || {})['日累计限定金额'] }))
+      .filter((x) => x.v !== null && x.v !== undefined).sort((a, b) => b.v - a.v);
+    if (os.length) {
+      odRows.push('<div class="r"><span class="nm">' + o.key + '</span>'
+        + '<span class="ch" style="color:#2563eb">' + Math.round(os[0].v) + ' 元/日</span></div>'
+        + '<div class="nmx">' + escapeHTML(FUND_NAMES[os[0].c] || os[0].c) + '</div>');
+    }
+  });
+  etfEl.innerHTML = etfRows.join('') || '<div class="ph">无数据</div>';
+  odEl.innerHTML = odRows.join('') || '<div class="ph">无数据</div>';
+}
+
+function renderAssetBoards() {
+  buildPools();
+  renderQuoteBoard('gridMarket', CFG.market);
+  renderQuoteBoard('gridHold', CFG.hold);
+  renderValBoard(CFG.val);
+  renderOverseas();
+  const st = $('assetStamp');
+  if (st) {
+    const parts = [];
+    if (MARKET) parts.push('行情 ' + String(MARKET.generated_at).slice(5, 16));
+    if (QDII) parts.push('QDII ' + String(QDII['日期']).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3'));
+    st.textContent = parts.length ? (parts.join(' · ') + ' · 仅供参考') : '';
+  }
+}
+
+async function loadAssetData() {
+  await Promise.all([
+    fetchJSON(SRC_MARKET).then((d) => { MARKET = d; }).catch(() => {}),
+    fetchJSON(SRC_QDII).then((d) => { QDII = d; }).catch(() => {}),
+  ]);
+  renderAssetBoards();
+}
+
+/* ───────────── 资产板块设置 ───────────── */
+async function loadCfg() {
+  try {
+    if (inApp) {
+      const { value } = await Preferences.get({ key: CFG_KEY });
+      if (value) { CFG = { ...DEFAULT_CFG, ...JSON.parse(value) }; return; }
+    }
+  } catch (e) { /* 落到 localStorage */ }
+  try {
+    const v = localStorage.getItem(CFG_KEY);
+    if (v) CFG = { ...DEFAULT_CFG, ...JSON.parse(v) };
+  } catch (e) { /* 用默认值 */ }
+}
+
+async function saveCfg() {
+  const s = JSON.stringify(CFG);
+  try { if (inApp) await Preferences.set({ key: CFG_KEY, value: s }); } catch (e) { /* 忽略 */ }
+  try { localStorage.setItem(CFG_KEY, s); } catch (e) { /* 忽略 */ }
+}
+
+/* 可选池：把 market-live 里有的都放进来 */
+const poolFor = (section) => (section === 'val' ? Object.keys(VALS) : Object.keys(QUOTES));
+
+function renderCfgPanel() {
+  const body = $('cfgBody');
+  if (!body) return;
+  const SECS = [
+    { k: 'market', label: 'A股大盘' },
+    { k: 'hold', label: '我的持仓' },
+    { k: 'val', label: '估值水位' },
+  ];
+  let html = '';
+  SECS.forEach((s) => {
+    const pool = poolFor(s.k);
+    const sel = CFG[s.k] || [];
+    const lim = LIMITS[s.k];
+    html += '<div class="cfgsec"><div class="cfgtitle">' + s.label
+      + '<span class="cnt' + (sel.length >= lim ? ' full' : '') + '">已选 ' + sel.length + ' / 最多 ' + lim + '</span></div><div class="chips">';
+    if (!pool.length) html += '<span class="ph">数据加载中…</span>';
+    pool.forEach((n) => {
+      html += '<span class="chip' + (sel.includes(n) ? ' on' : '') + '" data-sec="' + s.k + '" data-name="' + escapeHTML(n) + '">' + escapeHTML(n) + '</span>';
+    });
+    html += '</div></div>';
+  });
+  html += '<div class="cfgsec"><div class="cfgtitle">海外投资<span class="cnt">已选 '
+    + (CFG.overseas || []).length + ' / 最多 ' + LIMITS.overseas + '</span></div><div class="chips">'
+    + OVERSEAS_POOL.map((o) => '<span class="chip' + ((CFG.overseas || []).includes(o.key) ? ' on' : '')
+      + '" data-sec="overseas" data-name="' + escapeHTML(o.key) + '">' + escapeHTML(o.key) + '</span>').join('')
+    + '</div><div class="cfgnote" style="margin:7px 0 0">口径固定：场内取溢价最小、场外取额度最高（不需选择）。目前数据源只覆盖标普500 与纳指100。</div></div>';
+  body.innerHTML = html;
+
+  Array.from(body.querySelectorAll('.chip')).forEach((chip) => {
+    chip.addEventListener('click', async () => {
+      const sec = chip.getAttribute('data-sec');
+      const name = chip.getAttribute('data-name');
+      const sel = (CFG[sec] || []).slice();
+      const i = sel.indexOf(name);
+      if (i >= 0) sel.splice(i, 1);
+      else {
+        if (sel.length >= LIMITS[sec]) {
+          chip.animate([{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }], 180);
+          return;
+        }
+        sel.push(name);
+      }
+      CFG[sec] = sel;
+      await saveCfg();
+      renderCfgPanel();
+      renderAssetBoards();
+    });
+  });
+}
+
+function setupCfgPanel() {
+  $('rowAssetCfg').addEventListener('click', async () => {
+    if (!MARKET) await loadAssetData();
+    renderCfgPanel();
+    $('cfgMask').classList.add('on');
+  });
+  $('cfgClose').addEventListener('click', () => $('cfgMask').classList.remove('on'));
+  $('cfgMask').addEventListener('click', (e) => { if (e.target === $('cfgMask')) $('cfgMask').classList.remove('on'); });
+  $('cfgReset').addEventListener('click', async () => {
+    CFG = JSON.parse(JSON.stringify(DEFAULT_CFG));
+    await saveCfg();
+    renderCfgPanel();
+    renderAssetBoards();
+  });
+}
+
+/* ───────────── 我的 ───────────── */
 function setupMine() {
   $('verLabel').textContent = APP_VERSION + ' ›';
-
   $('rowSync').addEventListener('click', () => go(INV_URL, '个人资产管理'));
   $('rowNotify').addEventListener('click', () => sheet('新闻通知',
-    '计划中的能力（下一版本）：\n\n· 早咖啡 07:00、下午茶 15:20 定时提醒\n· 用官方 @capacitor/local-notifications 实现，本地推送、不依赖第三方服务器\n\n说明：目前新闻抓取由云端定时任务完成（07:00 / 15:20），App 这端只是"到点提醒你来看"。'));
+    '计划中的能力（下一版本）：\n\n· 下午茶 15:20、夜豆浆 22:30 定时提醒\n· 用官方 @capacitor/local-notifications 实现，本地推送\n\n说明：新闻抓取由 Cloudflare 定时触发云端任务（15:20 / 22:30），App 这端只负责"到点提醒你来看"。'));
   $('rowRead').addEventListener('click', () => sheet('已读标记',
-    '计划中的能力：\n\n· 记录哪些新闻看过，未读的显示"新"标\n· 数据存在手机本地（官方 @capacitor/preferences），不上传\n\n现在的"新"标来自抓取端（与上一场比对），不需要你自己操作。'));
-  $('rowTheme').addEventListener('click', () => sheet('外观',
-    '当前：跟随系统（浅色）。\n\n深色模式计划在后续版本支持——需要把整套配色做成变量（已预留 CSS 变量结构）。'));
+    '计划中的能力：\n\n· 记录哪些新闻看过，未读显示"新"标\n· 数据存在手机本地（@capacitor/preferences），不上传\n\n现在的"新"标来自抓取端（与上一场比对），不需要手动操作。'));
+  $('rowTheme').addEventListener('click', () => sheet('外观', '当前：跟随系统（浅色）。\n\n深色模式计划后续支持——配色已做成 CSS 变量，改动成本低。'));
   $('rowDiag').addEventListener('click', () => sheet('诊断信息',
     diagText() + '\n\n版本：' + APP_VERSION
-    + '\nWebView：' + (navigator.userAgent || '').slice(0, 90)
-    + '\n新闻源：' + NEWS_BASE
-    + '\n模块数：' + MODULES.length + ' 个（见 src/modules.mjs）'));
+    + '\nWebView：' + (navigator.userAgent || '').slice(0, 88)
+    + '\n模块数：' + MODULES.length + ' 个'));
   $('rowAbout').addEventListener('click', () => sheet('关于老张工具箱',
     '版本：' + APP_VERSION + '\n\n'
-    + '收纳个人项目与日常信息的手机入口：\n'
-    + '· 新闻：早咖啡 / 下午茶（谷歌 + 联合早报，AI 摘要）\n'
-    + '· 资产：个人资产管理系统（持仓 / 盈亏 / 云端同步）\n'
-    + '· 工具：其余自建站点\n\n'
+    + '· 新闻：下午茶 / 夜豆浆（谷歌 + 联合早报，AI 摘要）\n'
+    + '· 资产：入口卡 + 四个数据格（标的可自定义）\n'
+    + '· 工具：' + MODULES.length + ' 个自建站点 + 资产板块设置\n\n'
     + '技术栈：Capacitor 7 + Vite\n'
-    + '数据来源：news-feed（GitHub Actions 定时抓取）\n\n'
+    + '数据：market-live（行情/估值）、portfolio（QDII 溢价与额度）、news-feed（新闻）\n'
+    + '取数均经 proxy.hellohopo.dpdns.org 代理\n\n'
     + '仅供个人研究参考，不构成投资建议。'));
-
   $('sheetClose').addEventListener('click', () => $('mask').classList.remove('on'));
   $('mask').addEventListener('click', (e) => { if (e.target === $('mask')) $('mask').classList.remove('on'); });
 }
 
-/* ───────────── 原生增强（官方插件） ───────────── */
+/* ───────────── 原生增强 ───────────── */
 async function setupNative() {
   if (!inApp) return;
   try { await StatusBar.setStyle({ style: Style.Light }); } catch (e) { /* 忽略 */ }
-  try { await StatusBar.setBackgroundColor({ color: '#ffffff' }); } catch (e) { /* 部分版本无效 */ }
+  try { await StatusBar.setBackgroundColor({ color: '#ffffff' }); } catch (e) { /* 忽略 */ }
   try {
-    /* 回前台刷新新闻（比如 07:00 抓取完，切回 App 就能看到） */
-    await App.addListener('appStateChange', ({ isActive }) => { if (isActive) loadNews(currentEdition); });
+    await App.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) return;
+      loadNews(currentEdition);
+      loadAssetData();
+    });
   } catch (e) { /* 忽略 */ }
 }
 
-/* ───────────── 资产入口卡 ───────────── */
-function setupAsset() {
-  $('cardInv').addEventListener('click', () => go(INV_URL, '个人资产管理'));
-}
-
 /* ───────────── 启动 ───────────── */
-setupTabs();
-setupSeg();
-setupAsset();
-setupMine();
-renderTools();
-const startEdition = defaultEdition();
-syncSeg(startEdition);
-loadNews(startEdition);
-setupNative();
-
-if (inApp && !window.AndroidToolbox && typeof ModuleLauncher.open !== 'function') {
-  tip('⚠️ 未检测到原生通道，模块将以网页方式打开（无返回/首页按钮）。可在「我的 → 诊断信息」查看详情。');
+async function boot() {
+  setupTabs();
+  setupSeg();
+  setupMine();
+  await loadCfg();            // 先读配置，再按配置渲染
+  setupCfgPanel();
+  renderTools();
+  const ed = defaultEdition();
+  syncSeg(ed);
+  loadNews(ed);
+  loadAssetData();
+  $('cardInv').addEventListener('click', () => go(INV_URL, '个人资产管理'));
+  setupNative();
+  if (inApp && !window.AndroidToolbox && typeof ModuleLauncher.open !== 'function') {
+    tip('⚠️ 未检测到原生通道，模块将以网页方式打开（无返回/首页按钮）。可在「我的 → 诊断信息」查看详情。');
+  }
 }
+
+boot();

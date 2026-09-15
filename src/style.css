@@ -150,3 +150,72 @@ body {
   margin-top: 16px; width: 100%; border: 0; background: var(--blue); color: #fff;
   border-radius: 10px; padding: 11px; font: 600 14px/1 inherit; cursor: pointer;
 }
+
+/* ═══════════ 资产四格（2026-09-15 起）═══════════ */
+.g4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0 14px; }
+.card { background: #fff; border-radius: 14px; padding: 11px 11px 10px; }
+.card.wide { grid-column: span 2; }
+.card .t {
+  font-size: 11.3px; color: #8b95a3; font-weight: 600;
+  display: flex; align-items: center; gap: 5px; margin-bottom: 6px;
+}
+.card .t .hint { margin-left: auto; font-size: 9.5px; color: #c3cbd6; font-weight: 400; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); flex: none; }
+.ph { font-size: 11px; color: #c3cbd6; padding: 4px 0; }
+
+/* 行情行：名称一行不截断（跨列/半栏都够），数字固定靠右 */
+.r { display: flex; align-items: baseline; gap: 6px; padding: 2.5px 0; font-size: 11.6px; line-height: 1.35; }
+.r .nm { color: #3b4453; white-space: nowrap; }
+.r .ch { margin-left: auto; flex: none; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nmx { font-size: 10.2px; color: #a6b0bd; margin: -1px 0 5px; white-space: nowrap; }
+.yt { font-size: 9.4px; color: #a6b0bd; margin-top: 5px; line-height: 1.5; }
+
+/* 估值水位 */
+.v { display: flex; align-items: center; gap: 10px; padding: 3.5px 0; font-size: 11.8px; }
+.v .nm { color: #3b4453; white-space: nowrap; }
+.v .bar { flex: 0 0 90px; height: 5px; background: #eef1f5; border-radius: 3px; overflow: hidden; }
+.v .bar i { display: block; height: 100%; border-radius: 3px; }
+.v .pv { margin-left: auto; flex: none; font-weight: 700; font-size: 11.2px; min-width: 32px; text-align: right; }
+
+/* 海外投资两栏 */
+.two { display: flex; gap: 16px; }
+.two > div { flex: 1; min-width: 0; }
+.subt { font-size: 10.2px; color: #b6bfca; margin-bottom: 3px; }
+
+/* 数据时间戳 */
+.stamp { margin: 10px 16px 0; font-size: 10.6px; color: #b6bfca; text-align: center; line-height: 1.6; }
+
+/* 工具 Tab 的设置入口 */
+.entry {
+  display: flex; align-items: center; gap: 12px; margin: 0 14px 14px;
+  background: #fff; border-radius: 14px; padding: 14px 15px; cursor: pointer;
+}
+.entry:active { background: #f7f8fa; }
+.entry .ei { font-size: 20px; width: 26px; text-align: center; }
+.entry .etx { flex: 1; min-width: 0; }
+.entry .et { font-size: 14px; font-weight: 600; }
+.entry .ed { font-size: 11.4px; color: #a6b0bd; margin-top: 2px; }
+.entry .ea { color: #c3cbd6; font-size: 18px; }
+
+/* ═══════════ 资产板块设置面板 ═══════════ */
+.sheet.cfg { max-width: 460px; max-height: 82vh; display: flex; flex-direction: column; padding: 18px 18px 14px; }
+.sheet.cfg h2 { margin: 0 0 6px; }
+.cfgnote { font-size: 11.4px; color: #94a0ae; line-height: 1.6; margin-bottom: 10px; }
+#cfgBody { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.cfgsec { margin-bottom: 14px; }
+.cfgtitle { font-size: 13px; font-weight: 700; margin-bottom: 7px; display: flex; align-items: baseline; gap: 6px; }
+.cfgtitle .cnt { font-size: 10.8px; color: #a6b0bd; font-weight: 400; }
+.cfgtitle .cnt.full { color: #dc2626; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font-size: 11.6px; border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px;
+  color: #5d6875; background: #fafbfc; cursor: pointer; user-select: none;
+}
+.chip.on { border-color: #bcd0f7; background: #eef4ff; color: var(--blue); font-weight: 600; }
+.chip.lock { opacity: .55; }
+.cfgfoot { display: flex; gap: 10px; margin-top: 12px; flex: none; }
+.cfgfoot .ghost {
+  flex: 0 0 34%; border: 1px solid var(--line); background: #fff; color: #5d6875;
+  border-radius: 10px; padding: 11px; font: 600 14px/1 inherit; cursor: pointer;
+}
+.cfgfoot .close { flex: 1; margin-top: 0; }
