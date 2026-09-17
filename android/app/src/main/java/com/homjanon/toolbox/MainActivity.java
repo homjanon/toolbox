@@ -26,7 +26,9 @@ import com.getcapacitor.BridgeActivity;
  */
 public class MainActivity extends BridgeActivity {
 
-    private static final long EXIT_WINDOW_MS = 2000;
+    /* 连按两次返回的间隔上限。取 3500ms 是为了盖住 Toast 的显示时长
+       （默认约 2 秒）——用户读完提示再按，仍在窗口内，不会又落回"再按一次"分支。 */
+    private static final long EXIT_WINDOW_MS = 3500;
     private long lastBackAt = 0;
 
     /** 暴露给网页的原生兜底接口（与 Capacitor 插件系统完全独立，Capacitor 内部怎么变都不影响） */
@@ -81,13 +83,18 @@ public class MainActivity extends BridgeActivity {
             wv.goBack();
             return;
         }
-        // ② 宫格是根页面：连滑两次才退出，防误触
+        // ② 宫格是根页面：连按两次才退出，防误触
         long now = System.currentTimeMillis();
         if (now - lastBackAt < EXIT_WINDOW_MS) {
-            super.onBackPressed();
+            /* ⚠️ 这里【不能】用 super.onBackPressed()：
+               本项目 targetSdkVersion=35，该方法自 Android 13(API 33) 起已废弃，
+               要经 OnBackPressedDispatcher 转发，一旦有组件注册并启用了返回回调，
+               退出会被吞掉 —— 表现为"提示了但按了不退出"（v0.8 即此症）。
+               同项目的 ModuleActivity 用 finish() 一直正常，故这里同样直接收尾。 */
+            finishAndRemoveTask();
             return;
         }
         lastBackAt = now;
-        Toast.makeText(this, "再滑一次退出", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "再返回一次退出", Toast.LENGTH_SHORT).show();
     }
 }

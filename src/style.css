@@ -219,3 +219,16 @@ body {
   border-radius: 10px; padding: 11px; font: 600 14px/1 inherit; cursor: pointer;
 }
 .cfgfoot .close { flex: 1; margin-top: 0; }
+
+/* ═══════════ 新闻：下拉刷新 + 数据时间（v0.9）═══════════ */
+.pull {
+  height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  font-size: 11.6px; color: #94a0ae; transition: height .16s ease;
+}
+.newsmeta {
+  margin: 0 16px 8px; font-size: 11.2px; color: #a6b0bd; text-align: center; line-height: 1.5;
+}
+.newsmeta.warn {
+  color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 9px; padding: 6px 10px;
+}

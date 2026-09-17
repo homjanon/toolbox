@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.8';
+const APP_VERSION = 'v0.9';
 const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
 const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
 const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
@@ -99,6 +99,54 @@ async function fetchJSON(url, ms = 9000) {
   catch (e) { return await tryOnce(url); }
 }
 
+/* ───────────── 新闻缓存（v0.9）─────────────
+   设计要点：缓存失效【不看时钟，看"这一场是否已取过"】。
+   缓存键 = toolbox.news.{场次}.{北京日期} → 同一场次同一天只请求一次；
+   过了 15:20 / 22:30，"最近场次"变化 → 键变化 → 自然去取新的一场。
+   另外单独存一份 latest（本场未生成时回退显示用）。 */
+const CACHE_PREFIX = 'toolbox.news.';
+const LATEST_KEY = CACHE_PREFIX + 'latest';
+const EDITION_LABEL = { afternoon: '下午茶', night: '夜豆浆' };
+
+async function kvGet(key) {
+  try {
+    if (inApp) {
+      const { value } = await Preferences.get({ key });
+      if (value) return JSON.parse(value);
+    }
+  } catch (e) { /* 落到 localStorage */ }
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch (e) { return null; }
+}
+
+async function kvSet(key, obj) {
+  const s = JSON.stringify(obj);
+  try { if (inApp) await Preferences.set({ key, value: s }); } catch (e) { /* 忽略 */ }
+  try { localStorage.setItem(key, s); } catch (e) { /* 忽略 */ }
+}
+
+async function kvDel(key) {
+  try { if (inApp) await Preferences.remove({ key }); } catch (e) { /* 忽略 */ }
+  try { localStorage.removeItem(key); } catch (e) { /* 忽略 */ }
+}
+
+async function kvKeys() {
+  try { if (inApp) { const { keys } = await Preferences.keys(); return keys || []; } } catch (e) { /* 落到 localStorage */ }
+  try { return Object.keys(localStorage); } catch (e) { return []; }
+}
+
+/* 只保留【今天的两个场次】+ latest，其余（旧日期）删掉，避免无限增长 */
+async function pruneNewsCache(today) {
+  const keys = await kvKeys();
+  for (const k of keys) {
+    if (!k.startsWith(CACHE_PREFIX) || k === LATEST_KEY) continue;
+    const m = k.match(/\.(afternoon|night)\.(\d{4}-\d{2}-\d{2})$/);
+    if (m && m[2] !== today) await kvDel(k);
+  }
+}
+
 /* ───────────── 打开模块（原生容器） ───────────── */
 async function openModule(url, name) {
   const n = window.AndroidToolbox;
@@ -167,25 +215,9 @@ function newsItemHTML(it) {
     + '<span class="go">原文 ›</span></div></div>';
 }
 
-async function loadNews(edition) {
-  currentEdition = edition;
+function renderNews(data, kind, edition) {
   const list = $('newsList');
-  list.innerHTML = '<div class="empty">加载中…</div>';
-  const today = beijingToday();
-  let data = null, fallback = false;
-  try {
-    data = await fetchJSON(SRC_NEWS + 'news/' + today + '-' + edition + '.json');
-  } catch (e) {
-    try { data = await fetchJSON(SRC_NEWS + 'latest.json'); fallback = true; } catch (e2) { /* 下面统一处理 */ }
-  }
-  if (!data || !data.items || !data.items.length) {
-    list.innerHTML = '<div class="empty">暂时取不到新闻，请稍后再试</div>';
-    return;
-  }
-  const note = (fallback && data.edition !== edition)
-    ? '<div class="empty" style="padding:12px 16px;text-align:left">今天这场还没更新，先看最近一场（' + escapeHTML(data.editionName || '') + ' · ' + escapeHTML((data.fetched_at || '').slice(5, 16)) + '）</div>'
-    : '';
-  list.innerHTML = note + data.items.map(newsItemHTML).join('');
+  list.innerHTML = (data.items || []).map(newsItemHTML).join('') || '<div class="empty">本场暂无条目</div>';
   Array.from(list.querySelectorAll('.nitem')).forEach((el) => {
     el.addEventListener('click', () => {
       const url = el.getAttribute('data-url');
@@ -193,6 +225,72 @@ async function loadNews(edition) {
       if (url) go(url, title.slice(0, 20));
     });
   });
+  renderNewsMeta(kind, data, edition);
+}
+
+/* 顶部一行：数据时间 / 陈旧提示（kind: fresh | cached | fallback | offline） */
+function renderNewsMeta(kind, data, edition) {
+  const el = $('newsMeta');
+  if (!el) return;
+  const time = (data.fetched_at || '').slice(11, 16);
+  const day = (data.date || '').slice(5);
+  const when = (data.editionName || '') + ' ' + day + ' ' + time;
+  if (kind === 'fallback') {
+    el.className = 'newsmeta warn';
+    el.textContent = '本场（' + (EDITION_LABEL[edition] || '') + '）还没更新 · 显示 ' + when + ' · 下拉可刷新';
+  } else if (kind === 'offline') {
+    el.className = 'newsmeta warn';
+    el.textContent = '网络异常 · 显示缓存（' + when + '）· 下拉可刷新';
+  } else {
+    el.className = 'newsmeta';
+    el.textContent = '已更新 ' + day + ' ' + time + (kind === 'cached' ? '' : '');
+  }
+}
+
+/* force=true 时跳过缓存强制请求（下拉刷新用） */
+async function loadNews(edition, force = false) {
+  currentEdition = edition;
+  const today = beijingToday();
+  const key = CACHE_PREFIX + edition + '.' + today;
+
+  /* ① 非强制且命中今天这一场的缓存 → 直接用，零请求 */
+  if (!force) {
+    const c = await kvGet(key);
+    if (c && c.date === today && c.edition === edition) {
+      renderNews(c, 'cached', edition);
+      return;
+    }
+  }
+
+  const list = $('newsList');
+  list.innerHTML = '<div class="empty">加载中…</div>';
+
+  let data = null, kind = 'fresh';
+  try {
+    data = await fetchJSON(SRC_NEWS + 'news/' + today + '-' + edition + '.json');
+    await kvSet(key, data);
+    await pruneNewsCache(today);
+  } catch (e1) {
+    /* 本场未生成 or 网络失败 → 试最近一份 */
+    try {
+      const latest = await fetchJSON(SRC_NEWS + 'latest.json');
+      await kvSet(LATEST_KEY, latest);
+      data = latest;
+      kind = 'fallback';
+    } catch (e2) {
+      /* 网络彻底不通 → 用本地缓存兜底 */
+      const c = (await kvGet(key)) || (await kvGet(LATEST_KEY));
+      if (c) { data = c; kind = 'offline'; }
+    }
+  }
+
+  if (!data || !data.items || !data.items.length) {
+    list.innerHTML = '<div class="empty">暂时取不到新闻，请稍后再试（下拉可重试）</div>';
+    const el = $('newsMeta');
+    if (el) { el.className = 'newsmeta warn'; el.textContent = '未能取到数据'; }
+    return;
+  }
+  renderNews(data, kind, edition);
 }
 
 function setupSeg() {
@@ -445,7 +543,57 @@ function setupMine() {
   $('mask').addEventListener('click', (e) => { if (e.target === $('mask')) $('mask').classList.remove('on'); });
 }
 
+/* ───────────── 下拉刷新（新闻 Tab） ───────────── */
+function isNewsTab() {
+  const p = $('pane-news');
+  return p && p.classList.contains('on');
+}
+
+function setupPullRefresh() {
+  const box = $('content');
+  const hint = $('pullHint');
+  if (!box || !hint) return;
+  let startY = 0, pulling = false, refreshing = false;
+
+  box.addEventListener('touchstart', (e) => {
+    if (!isNewsTab() || box.scrollTop > 0 || refreshing) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  box.addEventListener('touchmove', (e) => {
+    if (!pulling) return;
+    if (box.scrollTop > 0) { pulling = false; hint.style.height = '0px'; return; }
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) return;
+    const d = Math.min(dy * 0.6, 78);
+    hint.style.height = d + 'px';
+    hint.textContent = d > 52 ? '松开刷新' : '下拉刷新';
+  }, { passive: true });
+
+  box.addEventListener('touchend', async () => {
+    if (!pulling) return;
+    pulling = false;
+    const h = parseInt(hint.style.height || '0', 10);
+    if (h > 52) {
+      refreshing = true;
+      hint.style.height = '34px';
+      hint.textContent = '正在刷新…';
+      try { await loadNews(currentEdition, true); } finally {
+        setTimeout(() => {
+          hint.style.height = '0px';
+          hint.textContent = '下拉刷新';
+          refreshing = false;
+        }, 500);
+      }
+    } else {
+      hint.style.height = '0px';
+    }
+  });
+}
+
 /* ───────────── 原生增强 ───────────── */
+
 async function setupNative() {
   if (!inApp) return;
   try { await StatusBar.setStyle({ style: Style.Light }); } catch (e) { /* 忽略 */ }
@@ -453,7 +601,11 @@ async function setupNative() {
   try {
     await App.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) return;
-      loadNews(currentEdition);
+      /* 新闻：非强制刷新 —— 命中缓存则零请求，只有"这一场还没取过"才会发请求 */
+      const ed = defaultEdition();
+      syncSeg(ed);
+      loadNews(ed);
+      /* 资产行情：需要实时，仍每次刷新 */
       loadAssetData();
     });
   } catch (e) { /* 忽略 */ }
@@ -467,9 +619,10 @@ async function boot() {
   await loadCfg();            // 先读配置，再按配置渲染
   setupCfgPanel();
   renderTools();
+  setupPullRefresh();
   const ed = defaultEdition();
   syncSeg(ed);
-  loadNews(ed);
+  loadNews(ed);        // 非强制：命中今天这一场的缓存则零请求，秒开
   loadAssetData();
   $('cardInv').addEventListener('click', () => go(INV_URL, '个人资产管理'));
   setupNative();
