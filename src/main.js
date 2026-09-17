@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.9';
+const APP_VERSION = 'v0.10';
 const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
 const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
 const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
@@ -107,6 +107,32 @@ async function fetchJSON(url, ms = 9000) {
 const CACHE_PREFIX = 'toolbox.news.';
 const LATEST_KEY = CACHE_PREFIX + 'latest';
 const EDITION_LABEL = { afternoon: '下午茶', night: '夜豆浆' };
+/* 场次时刻（北京时间，分钟数）：下午茶 15:20、夜豆浆 22:30。
+   ⚠️ 缓存的"日期"必须由这里反推，不能用"今天"——
+   否则每天早上打开，键从昨晚的 night.{昨天} 变成 night.{今天}，必然未命中而重新请求。 */
+const SLOT_AT = { afternoon: 15 * 60 + 20, night: 22 * 60 + 30 };
+/* 本场还没生成时的缓存有效期（10 分钟）：既不再反复重查，又不会漏掉随后生成的新数据 */
+const MISS_TTL = 10 * 60 * 1000;
+
+/* 该场次【最近一次已发生】的日期：
+   现在 07:32 → 今天的 15:20/22:30 都还没到 → 最近一场是【昨天 22:30 的夜豆浆】→ 返回昨天 */
+function slotDateFor(edition) {
+  const nb = beijingNow();
+  const mins = nb.getUTCHours() * 60 + nb.getUTCMinutes();
+  const today = nb.toISOString().slice(0, 10);
+  if (mins >= (SLOT_AT[edition] || 0)) return today;
+  return new Date(nb.getTime() - 86400e3).toISOString().slice(0, 10);
+}
+
+/* 当前该看哪一场（页签默认与缓存判定共用同一套边界）：
+   ≥22:30 → night(今天) ; 15:20–22:29 → afternoon(今天) ; 其余 → night(昨天) */
+function defaultEdition() {
+  const nb = beijingNow();
+  const mins = nb.getUTCHours() * 60 + nb.getUTCMinutes();
+  if (mins >= SLOT_AT.night) return 'night';
+  if (mins >= SLOT_AT.afternoon) return 'afternoon';
+  return 'night';
+}
 
 async function kvGet(key) {
   try {
@@ -138,12 +164,17 @@ async function kvKeys() {
 }
 
 /* 只保留【今天的两个场次】+ latest，其余（旧日期）删掉，避免无限增长 */
-async function pruneNewsCache(today) {
+async function pruneNewsCache() {
+  /* 保留【今天 + 昨天】两份：跨日时"昨天 22:30 的夜豆浆"正是今早该显示的那份，
+     早期版本只留"今天"，导致每天早上都把昨晚的缓存删掉、必须重新请求。 */
+  const nb = beijingNow();
+  const today = nb.toISOString().slice(0, 10);
+  const yest = new Date(nb.getTime() - 86400e3).toISOString().slice(0, 10);
   const keys = await kvKeys();
   for (const k of keys) {
     if (!k.startsWith(CACHE_PREFIX) || k === LATEST_KEY) continue;
     const m = k.match(/\.(afternoon|night)\.(\d{4}-\d{2}-\d{2})$/);
-    if (m && m[2] !== today) await kvDel(k);
+    if (m && m[2] !== today && m[2] !== yest) await kvDel(k);
   }
 }
 
@@ -186,12 +217,6 @@ function setupTabs() {
 
 /* ───────────── 新闻（原生渲染） ───────────── */
 let currentEdition = 'afternoon';
-
-/* 最近一场：15:00–22:29 看「下午茶」，其余时间看「夜豆浆」（与抓取时刻一致） */
-function defaultEdition() {
-  const nb = beijingNow(), h = nb.getUTCHours(), mi = nb.getUTCMinutes();
-  return (h >= 15 && (h < 22 || (h === 22 && mi < 30))) ? 'afternoon' : 'night';
-}
 
 function syncSeg(edition) {
   const seg = $('seg');
@@ -240,7 +265,7 @@ function renderNewsMeta(kind, data, edition) {
     el.textContent = '本场（' + (EDITION_LABEL[edition] || '') + '）还没更新 · 显示 ' + when + ' · 下拉可刷新';
   } else if (kind === 'offline') {
     el.className = 'newsmeta warn';
-    el.textContent = '网络异常 · 显示缓存（' + when + '）· 下拉可刷新';
+    el.textContent = '显示缓存 ' + when + ' · 下拉可刷新';
   } else {
     el.className = 'newsmeta';
     el.textContent = '已更新 ' + day + ' ' + time + (kind === 'cached' ? '' : '');
@@ -250,42 +275,52 @@ function renderNewsMeta(kind, data, edition) {
 /* force=true 时跳过缓存强制请求（下拉刷新用） */
 async function loadNews(edition, force = false) {
   currentEdition = edition;
-  const today = beijingToday();
-  const key = CACHE_PREFIX + edition + '.' + today;
+  const date = slotDateFor(edition);          /* ← 关键：该场次最近一次已发生的日期，不是"今天" */
+  const key = CACHE_PREFIX + edition + '.' + date;
 
-  /* ① 非强制且命中今天这一场的缓存 → 直接用，零请求 */
+  /* ① 非强制且命中该场次的缓存 → 直接用，零请求
+       · 正常缓存（本场已生成）→ 一直有效
+       · miss 缓存（当时本场还没生成）→ 只在 MISS_TTL 内有效，过期后重查一次 */
   if (!force) {
     const c = await kvGet(key);
-    if (c && c.date === today && c.edition === edition) {
-      renderNews(c, 'cached', edition);
-      return;
+    if (c && c.items && c.items.length) {
+      const fresh = !c.__miss || (Date.now() - (c.__ts || 0)) < MISS_TTL;
+      if (fresh) {
+        renderNews(c, c.__miss ? 'fallback' : 'cached', edition);
+        return;
+      }
     }
   }
 
-  const list = $('newsList');
-  list.innerHTML = '<div class="empty">加载中…</div>';
+  /* ② 未命中：先用【已有的最近缓存】立即渲染（秒开、不转圈），再后台取新的 */
+  let stale = await kvGet(key);
+  if (!stale) stale = await kvGet(LATEST_KEY);
+  const hasStale = !!(stale && stale.items && stale.items.length);
+  if (hasStale) renderNews(stale, 'offline', edition);
+  else $('newsList').innerHTML = '<div class="empty">加载中…</div>';
 
+  /* ③ 取数：目标场次 → latest → 退回本地缓存 */
   let data = null, kind = 'fresh';
   try {
-    data = await fetchJSON(SRC_NEWS + 'news/' + today + '-' + edition + '.json');
+    data = await fetchJSON(SRC_NEWS + 'news/' + date + '-' + edition + '.json');
     await kvSet(key, data);
-    await pruneNewsCache(today);
+    await pruneNewsCache();
   } catch (e1) {
-    /* 本场未生成 or 网络失败 → 试最近一份 */
     try {
       const latest = await fetchJSON(SRC_NEWS + 'latest.json');
       await kvSet(LATEST_KEY, latest);
+      /* 给【本场次】也留一份带 miss 标记的缓存：下次同一场次直接命中（10 分钟内不重查），
+         过期后会自动重查——既有缓存感，又不会漏掉随后生成的新数据。 */
+      await kvSet(key, { ...latest, __miss: true, __ts: Date.now() });
       data = latest;
       kind = 'fallback';
     } catch (e2) {
-      /* 网络彻底不通 → 用本地缓存兜底 */
-      const c = (await kvGet(key)) || (await kvGet(LATEST_KEY));
-      if (c) { data = c; kind = 'offline'; }
+      if (hasStale) { data = stale; kind = 'offline'; }
     }
   }
 
   if (!data || !data.items || !data.items.length) {
-    list.innerHTML = '<div class="empty">暂时取不到新闻，请稍后再试（下拉可重试）</div>';
+    $('newsList').innerHTML = '<div class="empty">暂时取不到新闻，请稍后再试（下拉可重试）</div>';
     const el = $('newsMeta');
     if (el) { el.className = 'newsmeta warn'; el.textContent = '未能取到数据'; }
     return;
