@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.10';
+const APP_VERSION = 'v0.11';
 const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
 const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
 const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
@@ -25,11 +25,62 @@ const inApp = Capacitor.isNativePlatform();
 const ModuleLauncher = registerPlugin('ModuleLauncher');
 const $ = (id) => document.getElementById(id);
 
+/* ───────────── 主题（跟随系统 / 浅色 / 深色）───────────── */
+const THEME_KEY = 'toolbox.theme';
+let THEME = 'auto';                       // auto | light | dark
+const mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+function effectiveTheme() {
+  if (THEME === 'dark') return 'dark';
+  if (THEME === 'light') return 'light';
+  return (mqDark && mqDark.matches) ? 'dark' : 'light';
+}
+
+function applyTheme() {
+  const eff = effectiveTheme();
+  document.documentElement.setAttribute('data-theme', eff);
+  if (inApp) {
+    try { StatusBar.setStyle({ style: eff === 'dark' ? Style.Dark : Style.Light }); } catch (e) { /* 忽略 */ }
+    try { StatusBar.setBackgroundColor({ color: eff === 'dark' ? '#171b22' : '#ffffff' }); } catch (e) { /* 忽略 */ }
+  }
+  const el = $('themeLabel');
+  if (el) el.textContent = THEME === 'auto' ? '跟随系统' : (THEME === 'dark' ? '深色' : '浅色');
+}
+
+async function loadTheme() {
+  try {
+    if (inApp) {
+      const { value } = await Preferences.get({ key: THEME_KEY });
+      if (value) THEME = value;
+    }
+  } catch (e) { /* 忽略 */ }
+  if (!['auto', 'light', 'dark'].includes(THEME)) THEME = 'auto';
+  if (mqDark && mqDark.addEventListener) mqDark.addEventListener('change', applyTheme);
+  applyTheme();
+}
+
+async function setTheme(mode) {
+  THEME = mode;
+  try { if (inApp) await Preferences.set({ key: THEME_KEY, value: mode }); } catch (e) { /* 忽略 */ }
+  try { localStorage.setItem(THEME_KEY, mode); } catch (e) { /* 忽略 */ }
+  applyTheme();
+}
+
+function pickTheme() {
+  const cur = (m) => (THEME === m ? '● ' : '○ ');
+  const body = '当前：' + (THEME === 'auto' ? '跟随系统' : (THEME === 'dark' ? '深色' : '浅色')) + '\n\n'
+    + '回复数字即可切换：\n'
+    + '  1. ' + cur('auto') + '跟随系统\n'
+    + '  2. ' + cur('light') + '浅色\n'
+    + '  3. ' + cur('dark') + '深色';
+  sheet('外观', body);
+}
+
 /* ───────────── 四格配置 ───────────── */
-const CFG_KEY = 'toolbox.assetBoards.v1';
-const LIMITS = { market: 3, hold: 6, val: 4, overseas: 3 };
+const CFG_KEY = 'toolbox.assetBoards.v2';
+const LIMITS = { market: 6, hold: 6, val: 4, overseas: 3 };
 const DEFAULT_CFG = {
-  market: ['上证指数', '沪深300', '创业板指'],
+  market: ['上证指数', '沪深300', '恒生指数', '日经225', '德国DAX', '富时A50期指'],
   hold: ['红利低波', '纳斯达克100', '标普500', '30年国债ETF'],
   val: ['中证红利低波', '沪深300', '中概互联50'],
   overseas: ['标普500', '纳指100'],
@@ -375,7 +426,8 @@ function buildPools() {
   });
 }
 
-const colorOf = (v) => (v === null || v === undefined) ? '#94a0ae' : (v > 0 ? '#dc2626' : (v < 0 ? '#16a34a' : '#5d6875'));
+/* 涨跌着色改用 class（CSS 变量控制），这样深色模式自动跟随 */
+const clsOf = (v) => (v === null || v === undefined) ? 'flat' : (v > 0 ? 'up' : (v < 0 ? 'down' : 'flat'));
 const pct = (v, d = 2) => (v === null || v === undefined) ? '—' : (v > 0 ? '+' : '') + v.toFixed(d) + '%';
 
 function renderQuoteBoard(elId, names) {
@@ -386,7 +438,7 @@ function renderQuoteBoard(elId, names) {
     const q = QUOTES[n];
     if (!q) return '<div class="r"><span class="nm">' + escapeHTML(n) + '</span><span class="ch">—</span></div>';
     return '<div class="r"><span class="nm">' + escapeHTML(n) + '</span>'
-      + '<span class="ch" style="color:' + colorOf(q.chg) + '">' + pct(q.chg) + '</span></div>';
+      + '<span class="ch ' + clsOf(q.chg) + '">' + pct(q.chg) + '</span></div>';
   }).join('');
 }
 
@@ -401,10 +453,13 @@ function renderValBoard(names) {
         + '<span class="bar"><i style="width:0"></i></span><span class="pv">—</span></div>';
     }
     const pv = Math.round(v.pe_pct * 100);
-    const c = pv >= 80 ? '#dc2626' : (pv >= 60 ? '#f59e0b' : '#16a34a');
+    const lv = pv >= 80 ? 'lv-high' : (pv >= 60 ? 'lv-mid' : 'lv-low');
+    /* 股息率（yield 为小数，如 0.0433 → 4.33%） */
+    const yld = (v.yield === null || v.yield === undefined) ? ''
+      : '<span class="yld">股息 ' + (v.yield * 100).toFixed(2) + '%</span>';
     return '<div class="v"><span class="nm">' + escapeHTML(n) + '</span>'
-      + '<span class="bar"><i style="width:' + pv + '%;background:' + c + '"></i></span>'
-      + '<span class="pv" style="color:' + c + '">' + pv + '%</span></div>';
+      + '<span class="bar"><i class="' + lv + '" style="width:' + pv + '%"></i></span>'
+      + '<span class="pv ' + lv + '">' + pv + '%</span>' + yld + '</div>';
   }).join('');
 }
 
@@ -425,14 +480,14 @@ function renderOverseas() {
       .filter((x) => x.v !== null && x.v !== undefined).sort((a, b) => a.v - b.v);
     if (es.length) {
       etfRows.push('<div class="r"><span class="nm">' + o.key + '</span>'
-        + '<span class="ch" style="color:' + colorOf(es[0].v) + '">' + pct(es[0].v) + '</span></div>'
+        + '<span class="ch ' + clsOf(es[0].v) + '">' + pct(es[0].v) + '</span></div>'
         + '<div class="nmx">' + escapeHTML(FUND_NAMES[es[0].c] || es[0].c) + '</div>');
     }
     const os = o.od.map((c) => ({ c, v: (od[c] || {})['日累计限定金额'] }))
       .filter((x) => x.v !== null && x.v !== undefined).sort((a, b) => b.v - a.v);
     if (os.length) {
       odRows.push('<div class="r"><span class="nm">' + o.key + '</span>'
-        + '<span class="ch" style="color:#2563eb">' + Math.round(os[0].v) + ' 元/日</span></div>'
+        + '<span class="ch" style="color:var(--blue)">' + Math.round(os[0].v) + ' 元/日</span></div>'
         + '<div class="nmx">' + escapeHTML(FUND_NAMES[os[0].c] || os[0].c) + '</div>');
     }
   });
@@ -440,12 +495,39 @@ function renderOverseas() {
   odEl.innerHTML = odRows.join('') || '<div class="ph">无数据</div>';
 }
 
+/* 四格点击目标：点哪格进哪个模块 */
+const BOARD_LINK = {
+  market: ['https://market-live.hellohopo.dpdns.org/', '实时市场看板'],
+  hold: ['https://market-live.hellohopo.dpdns.org/', '实时市场看板'],
+  val: ['https://market-live.hellohopo.dpdns.org/', '实时市场看板 · 估值'],
+  overseas: ['https://qdii-nav-tracker.hellohopo.dpdns.org/', 'QDII 净值跟踪'],
+};
+
+function bindBoardLinks() {
+  Object.keys(BOARD_LINK).forEach((k) => {
+    const el = document.querySelector('[data-board="' + k + '"]');
+    if (!el || el.__bound) return;
+    el.__bound = true;
+    el.addEventListener('click', () => {
+      const [url, name] = BOARD_LINK[k];
+      go(url, name);
+    });
+  });
+}
+
 function renderAssetBoards() {
   buildPools();
+  bindBoardLinks();
   renderQuoteBoard('gridMarket', CFG.market);
   renderQuoteBoard('gridHold', CFG.hold);
   renderValBoard(CFG.val);
   renderOverseas();
+  const odTitle = document.querySelector('[data-qdii-detail]');
+  if (odTitle && !odTitle.__bound) {
+    odTitle.__bound = true;
+    odTitle.style.cursor = 'pointer';
+    odTitle.addEventListener('click', showQdiiDetail);
+  }
   const st = $('assetStamp');
   if (st) {
     const parts = [];
@@ -461,6 +543,35 @@ async function loadAssetData() {
     fetchJSON(SRC_QDII).then((d) => { QDII = d; }).catch(() => {}),
   ]);
   renderAssetBoards();
+}
+
+/* ───────────── QDII 明细（完整清单）───────────── */
+function showQdiiDetail() {
+  if (!QDII) { sheet('QDII 明细', '数据还没加载完，请稍后再试。'); return; }
+  const etf = QDII['场内ETF'] || {};
+  const z = QDII['场外QDII'] || {};
+  const za = QDII['场外QDII主动'] || {};
+  const lines = [];
+  const dateStr = String(QDII['日期'] || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+  lines.push('数据日期：' + dateStr + '（上一交易日）');
+  lines.push('');
+  lines.push('【场内 ETF 溢价率】越低越值得买');
+  Object.entries(etf).sort((a, b) => (a[1]['溢价率'] || 0) - (b[1]['溢价率'] || 0))
+    .forEach(([c, v]) => lines.push(
+      '  ' + (FUND_NAMES[c] || c).padEnd(18, ' ') + ' +' + (v['溢价率'] || 0).toFixed(2) + '%'));
+  lines.push('');
+  lines.push('【场外 · 纳指100/标普500 系 日限额】越多越好买');
+  Object.entries(z).sort((a, b) => (b[1]['日累计限定金额'] || 0) - (a[1]['日累计限定金额'] || 0))
+    .forEach(([c, v]) => lines.push(
+      '  ' + (FUND_NAMES[c] || c).padEnd(18, ' ') + ' ' + Math.round(v['日累计限定金额'] || 0) + ' 元/日'));
+  lines.push('');
+  lines.push('【场外 · 主动型 QDII 日限额】');
+  Object.entries(za).sort((a, b) => (b[1]['日累计限定金额'] || 0) - (a[1]['日累计限定金额'] || 0))
+    .forEach(([c, v]) => lines.push(
+      '  ' + (FUND_NAMES[c] || c).padEnd(18, ' ') + ' ' + Math.round(v['日累计限定金额'] || 0) + ' 元/日'));
+  lines.push('');
+  lines.push('（完整净值走势见「QDII 净值跟踪」模块）');
+  sheet('QDII 明细 · ' + dateStr, lines.join('\n'));
 }
 
 /* ───────────── 资产板块设置 ───────────── */
@@ -536,6 +647,35 @@ function renderCfgPanel() {
   });
 }
 
+function setupDataMaint() {
+  $('rowDataMaint').addEventListener('click', () => dmOpen());
+  $('editCancel').addEventListener('click', closeCellEdit);
+  $('editMask').addEventListener('click', (e) => { if (e.target === $('editMask')) closeCellEdit(); });
+  $('editOk').addEventListener('click', () => {
+    const raw = $('editInput').value;
+    const t2 = $('editInput').type;
+    let val = raw;
+    if (t2 === 'number') val = raw === '' ? 0 : Number(raw);
+    else if (raw === 'true') val = true;
+    else if (raw === 'false') val = false;
+    closeCellEdit();
+    if (EditCb) EditCb(val);
+  });
+  $('patClear').addEventListener('click', async () => {
+    await savePat('');
+    $('patMask').classList.remove('on');
+    dmRenderList();
+  });
+  $('patSave').addEventListener('click', async () => {
+    const v = $('patInput').value.trim();
+    if (!v) { $('patInput').placeholder = '请粘贴 PAT'; return; }
+    await savePat(v);
+    $('patMask').classList.remove('on');
+    dmRenderList();
+  });
+  $('patMask').addEventListener('click', (e) => { if (e.target === $('patMask')) $('patMask').classList.remove('on'); });
+}
+
 function setupCfgPanel() {
   $('rowAssetCfg').addEventListener('click', async () => {
     if (!MARKET) await loadAssetData();
@@ -555,16 +695,74 @@ function setupCfgPanel() {
 /* ───────────── 我的 ───────────── */
 function setupMine() {
   $('verLabel').textContent = APP_VERSION + ' ›';
+
   $('rowSync').addEventListener('click', () => go(INV_URL, '个人资产管理'));
-  $('rowNotify').addEventListener('click', () => sheet('新闻通知',
-    '计划中的能力（下一版本）：\n\n· 下午茶 15:20、夜豆浆 22:30 定时提醒\n· 用官方 @capacitor/local-notifications 实现，本地推送\n\n说明：新闻抓取由 Cloudflare 定时触发云端任务（15:20 / 22:30），App 这端只负责"到点提醒你来看"。'));
-  $('rowRead').addEventListener('click', () => sheet('已读标记',
-    '计划中的能力：\n\n· 记录哪些新闻看过，未读显示"新"标\n· 数据存在手机本地（@capacitor/preferences），不上传\n\n现在的"新"标来自抓取端（与上一场比对），不需要手动操作。'));
-  $('rowTheme').addEventListener('click', () => sheet('外观', '当前：跟随系统（浅色）。\n\n深色模式计划后续支持——配色已做成 CSS 变量，改动成本低。'));
-  $('rowDiag').addEventListener('click', () => sheet('诊断信息',
-    diagText() + '\n\n版本：' + APP_VERSION
-    + '\nWebView：' + (navigator.userAgent || '').slice(0, 88)
-    + '\n模块数：' + MODULES.length + ' 个'));
+
+  /* 外观：三选一（跟随系统 / 浅色 / 深色）—— 用弹层里的按钮切换 */
+  $('rowTheme').addEventListener('click', () => {
+    const seg = ['auto', 'light', 'dark'];
+    const labels = { auto: '跟随系统', light: '浅色', dark: '深色' };
+    const opts = seg.map((m) => (THEME === m ? '● ' : '○ ') + '[' + m + '] ' + labels[m]).join('\n');
+    sheet('外观', '当前：' + labels[THEME] + '\n\n点下面的按钮切换，或直接回复 auto / light / dark：\n\n' + opts);
+    $('sheetCopy').style.display = 'none';
+  });
+
+  /* 诊断信息（增强）：一键复制 + 连通性自检 */
+  $('rowDiag').addEventListener('click', async () => {
+    const lines = [
+      '—— 环境 ——',
+      diagText(),
+      'WebView：' + (navigator.userAgent || '').slice(0, 90),
+      '模块数：' + MODULES.length + ' 个',
+      '主题：' + THEME + '（生效：' + effectiveTheme() + '）',
+      '缓存键：' + (await kvKeys()).filter((k) => k.startsWith(CACHE_PREFIX)).join(' / '),
+      '',
+      '—— 连通性自检（点此按钮前已跑完）——',
+    ];
+    sheet('诊断信息', lines.join('\n') + '\n正在自检…');
+    const checks = [
+      ['行情 market-live', SRC_MARKET, () => (MARKET ? '✓ ' + MARKET.generated_at : '✗ 未取到')],
+      ['QDII portfolio', SRC_QDII, () => (QDII ? '✓ ' + QDII['日期'] : '✗ 未取到')],
+      ['新闻 news-feed', SRC_NEWS + 'latest.json', () => null],
+    ];
+    for (const [name, url, localCheck] of checks) {
+      let line;
+      const local = localCheck();
+      if (local) {
+        line = '  ' + name + '：' + local;
+      } else {
+        try {
+          await fetchJSON(url, 8000);
+          line = '  ' + name + '：✓ 可达';
+        } catch (e) {
+          line = '  ' + name + '：✗ ' + (e && e.message ? e.message.slice(0, 40) : '取数失败');
+        }
+      }
+      lines.push(line);
+      $('sheetBody').textContent = lines.join('\n') + '\n自检中…';
+    }
+    lines.push('');
+    lines.push('—— 四格配置 ——');
+    lines.push('  全球指数：' + (CFG.market || []).join('、'));
+    lines.push('  我的持仓：' + (CFG.hold || []).join('、'));
+    lines.push('  估值水位：' + (CFG.val || []).join('、'));
+    lines.push('  海外投资：' + (CFG.overseas || []).join('、'));
+    $('sheetBody').textContent = lines.join('\n');
+    $('sheetCopy').style.display = 'block';
+    $('sheetCopy').__text = lines.join('\n');
+  });
+
+  /* 清空本地缓存 */
+  $('rowClear').addEventListener('click', () => {
+    sheet('清空本地缓存',
+      '将清掉：\n· 新闻缓存（含今天/昨天的场次数据）\n· 数据维护的离线草稿\n\n'
+      + '不会动：四格配置、外观设置、新闻已读记录（本项未启用）。\n\n'
+      + '清完后下次打开会重新联网取一次。');
+    $('sheetCopy').style.display = 'block';
+    $('sheetCopy').textContent = '确认清空';
+    $('sheetCopy').__text = '__CLEAR__';
+  });
+
   $('rowAbout').addEventListener('click', () => sheet('关于老张工具箱',
     '版本：' + APP_VERSION + '\n\n'
     + '· 新闻：下午茶 / 夜豆浆（谷歌 + 联合早报，AI 摘要）\n'
@@ -574,14 +772,41 @@ function setupMine() {
     + '数据：market-live（行情/估值）、portfolio（QDII 溢价与额度）、news-feed（新闻）\n'
     + '取数均经 proxy.hellohopo.dpdns.org 代理\n\n'
     + '仅供个人研究参考，不构成投资建议。'));
-  $('sheetClose').addEventListener('click', () => $('mask').classList.remove('on'));
-  $('mask').addEventListener('click', (e) => { if (e.target === $('mask')) $('mask').classList.remove('on'); });
+
+  /* 弹层按钮 */
+  $('sheetClose').addEventListener('click', () => {
+    $('mask').classList.remove('on');
+    $('sheetCopy').style.display = 'none';
+    $('sheetCopy').textContent = '复制';
+    $('sheetCopy').__text = '';
+  });
+  $('sheetCopy').addEventListener('click', async () => {
+    const txt = $('sheetCopy').__text || $('sheetBody').textContent;
+    if (txt === '__CLEAR__') {
+      await kvKeys().then(async (keys) => {
+        for (const k of keys) if (k.startsWith(CACHE_PREFIX)) await kvDel(k);
+      });
+      $('sheetBody').textContent = '已清空新闻缓存。下次打开会重新联网取一次。';
+      $('sheetCopy').style.display = 'none';
+      $('sheetCopy').__text = '';
+      renderNewsMeta('offline', { fetched_at: '', date: '', editionName: '（已清空）' }, currentEdition);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(txt);
+      $('sheetCopy').textContent = '已复制 ✓';
+      setTimeout(() => { $('sheetCopy').textContent = '复制'; }, 1500);
+    } catch (e) {
+      $('sheetCopy').textContent = '复制失败（可手动长按选择）';
+    }
+  });
+  $('mask').addEventListener('click', (e) => { if (e.target === $('mask')) { $('mask').classList.remove('on'); $('sheetCopy').style.display = 'none'; } });
 }
 
 /* ───────────── 下拉刷新（新闻 Tab） ───────────── */
-function isNewsTab() {
-  const p = $('pane-news');
-  return p && p.classList.contains('on');
+function activeTab() {
+  const on = document.querySelector('.pane.on');
+  return on ? on.id.replace('pane-', '') : '';
 }
 
 function setupPullRefresh() {
@@ -591,7 +816,8 @@ function setupPullRefresh() {
   let startY = 0, pulling = false, refreshing = false;
 
   box.addEventListener('touchstart', (e) => {
-    if (!isNewsTab() || box.scrollTop > 0 || refreshing) return;
+    const tb = activeTab();
+    if ((tb !== 'news' && tb !== 'asset') || box.scrollTop > 0 || refreshing) return;
     startY = e.touches[0].clientY;
     pulling = true;
   }, { passive: true });
@@ -614,7 +840,11 @@ function setupPullRefresh() {
       refreshing = true;
       hint.style.height = '34px';
       hint.textContent = '正在刷新…';
-      try { await loadNews(currentEdition, true); } finally {
+      try {
+        /* 新闻页 → 强制重取新闻；资产页 → 重取行情与 QDII */
+        if (activeTab() === 'news') await loadNews(currentEdition, true);
+        else await loadAssetData();
+      } finally {
         setTimeout(() => {
           hint.style.height = '0px';
           hint.textContent = '下拉刷新';
@@ -625,6 +855,459 @@ function setupPullRefresh() {
       hint.style.height = '0px';
     }
   });
+}
+
+/* ═════════════════ 数据维护（原生）═════════════════
+   设计要点：
+   · 数据源清单【配置化】—— 以后新增数据源只加一行，不写代码
+   · 一个【通用 JSON 编辑器】覆盖所有 JSON 文件：
+       数组 → 每项一行、字段自动成为列（列名取并集）
+       对象 → 键值表；值若是对象/数组 → 点进去（路径栈导航）
+       叶子值（字符串/数字/布尔/null）→ 点格子弹层编辑
+   · 保存走 Contents API（带 sha）；【保存前重新 READ）校验 sha】
+     —— 若仓库已被 CI 改过，会提示你，不会盲目覆盖
+   · Secret 类数据源（需 libsodium 加密）不在原生处理，给"网页版"入口
+   ⚠️ 不用 prompt()：Capacitor WebView 默认不实现 onJsPrompt，弹不出来 —— 一律用自定义弹层 */
+const PAT_KEY = 'toolbox.ghPat';
+const GH_BRANCH = 'main';
+const DATA_SOURCES = [
+  { id: 'qdii_funds', icon: '🪙', title: 'qdii 基金清单', repo: 'homjanon/qdii-nav-tracker',
+    path: 'config/funds.json', desc: '场外 QDII 基金清单（新增/移除基金在此维护）',
+    autoExpand: ['funds'] },
+  { id: 'db_state', icon: '🎬', title: 'douban 状态', repo: 'homjanon/douban-tracker',
+    path: 'state.json', desc: '昵称映射 + 持仓（人工确认制）',
+    hide: ['_seen_ids', 'updated_at', 'last_cursor', 'total_archived'] },
+  { id: 'xq_mentions', icon: '📈', title: 'xueqiu 标的提及', repo: 'homjanon/xueqiu-tracker',
+    path: 'data/mentions.json', desc: '大V标的提及追踪表（增量合并，手改不被 CI 冲掉）',
+    autoExpand: ['users'], hide: ['schema_version', 'updated_at'] },
+  { id: 'cmb_secret', icon: '🏦', title: 'cmb 持仓成本', repo: 'homjanon/cmb-tracker',
+    kind: 'secret', desc: 'GitHub Secret HOLDINGS_JSON（需加密，走网页版）',
+    web: 'https://homjanon.github.io/github-ops/github-data-maintainer.html' },
+];
+const DM_WEB_INDEX = 'https://homjanon.github.io/github-ops/';
+
+let PAT = '';
+let DM = null;   /* { src, data, sha, path:[], dirty } */
+
+/* ── GitHub API 封装 ── */
+async function ghApi(path, opts) {
+  if (!PAT) throw new Error('未配置 PAT');
+  const o = opts || {};
+  const res = await fetch('https://api.github.com' + path, {
+    method: o.method || 'GET',
+    headers: Object.assign({
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer ' + PAT,
+      'X-GitHub-Api-Version': '2022-11-28',
+    }, o.headers || {}),
+    body: o.body,
+  });
+  if (res.status === 204) return null;
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* 可能是空体 */ }
+  if (!res.ok) {
+    const msg = (data && data.message) ? data.message : ('HTTP ' + res.status);
+    if (res.status === 401) throw new Error('PAT 无效或已过期（401）');
+    if (res.status === 403) throw new Error('权限不足或触发限流（403）：' + msg);
+    if (res.status === 404) throw new Error('找不到仓库/文件（404）：' + msg);
+    if (res.status === 409) throw new Error('版本冲突（409）：仓库刚被改过，请重新加载');
+    throw new Error(msg + '（' + res.status + '）');
+  }
+  return data;
+}
+
+/* UTF-8 安全的 base64 编解码（中文内容必须这样处理） */
+function b64ToText(b64) {
+  const bin = atob(String(b64).replace(/\s/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}
+function textToB64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+async function ghRead(repo, path) {
+  const j = await ghApi('/repos/' + repo + '/contents/' + path + '?ref=' + GH_BRANCH);
+  return { text: b64ToText(j.content), sha: j.sha };
+}
+async function ghWrite(repo, path, text, sha, message) {
+  return ghApi('/repos/' + repo + '/contents/' + path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: message, content: textToB64(text), sha: sha, branch: GH_BRANCH }),
+  });
+}
+
+/* ── PAT ── */
+async function loadPat() {
+  try {
+    if (inApp) { const { value } = await Preferences.get({ key: PAT_KEY }); if (value) PAT = value; }
+  } catch (e) { /* 忽略 */ }
+  if (!PAT) { try { PAT = localStorage.getItem(PAT_KEY) || ''; } catch (e) { /* 忽略 */ } }
+}
+async function savePat(v) {
+  PAT = v || '';
+  try { if (inApp) await Preferences.set({ key: PAT_KEY, value: PAT }); } catch (e) { /* 忽略 */ }
+  try { localStorage.setItem(PAT_KEY, PAT); } catch (e) { /* 忽略 */ }
+}
+
+/* ── 视图：打开 / 关闭 ── */
+function dmOpen() {
+  $('dm').classList.add('on');
+  dmRenderList();
+  $('dmBack').onclick = () => {
+    if (DM) { DM = null; dmRenderList(); }
+    else dmClose();
+  };
+  $('dmReload').onclick = () => {
+    if (DM) dmOpenSource(DM.src.id, true);
+    else dmRenderList();
+  };
+}
+function dmClose() { $('dm').classList.remove('on'); }
+
+function dmSetHead(title, sub) {
+  $('dmTitle').textContent = title;
+  $('dmSub').textContent = sub || '';
+}
+function dmTip(msg, isWarn) {
+  const el = $('dmTip');
+  if (!msg) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.className = 'dm-tip' + (isWarn === false ? '' : '');
+  el.style.background = isWarn === false ? 'var(--blue-l)' : '';
+  el.style.borderColor = isWarn === false ? 'var(--blue-l)' : '';
+  el.style.color = isWarn === false ? 'var(--blue)' : '';
+  el.textContent = msg;
+}
+
+/* ── 列表页 ── */
+function dmRenderList() {
+  dmSetHead('数据维护', PAT ? ('PAT 已配置 · ' + DATA_SOURCES.length + ' 个数据源') : '未配置 PAT');
+  $('dmFoot').classList.remove('on');
+  if (!PAT) {
+    dmTip('首次使用需要填一个 GitHub PAT（有目标仓库 Contents 读写权限即可）。只存在本机。');
+  } else {
+    dmTip('');
+  }
+  let html = '';
+  if (!PAT) html += '<div class="addrow" id="dmPat">配置 PAT</div><div style="height:10px"></div>';
+  DATA_SOURCES.forEach((s) => {
+    const isSecret = s.kind === 'secret';
+    html += '<div class="srcrow' + (isSecret ? ' locked' : '') + '" data-src="' + s.id + '">'
+      + '<span class="si">' + s.icon + '</span>'
+      + '<div class="stx"><div class="s1">' + escapeHTML(s.title) + '</div>'
+      + '<div class="s2">' + escapeHTML(s.repo + (s.path ? ' · ' + s.path : ' · Secret')) + '</div></div>'
+      + '<span class="ss">' + (isSecret ? '↗' : '›') + '</span></div>';
+  });
+  html += '<div class="addrow" id="dmWeb">打开网页版（含 Secret 与更多数据源）</div>';
+  $('dmBody').innerHTML = html;
+
+  if ($('dmPat')) $('dmPat').onclick = openPatDialog;
+  $('dmWeb').onclick = () => go(DM_WEB_INDEX, '数据维护（网页版）');
+  Array.from($('dmBody').querySelectorAll('.srcrow')).forEach((el) => {
+    el.onclick = () => {
+      const s = DATA_SOURCES.find((x) => x.id === el.getAttribute('data-src'));
+      if (!s) return;
+      if (s.kind === 'secret') {
+        if (s.web) go(s.web, s.title + '（网页版）');
+        return;
+      }
+      dmOpenSource(s.id);
+    };
+  });
+}
+
+/* ── 读取并进入编辑器 ── */
+async function dmOpenSource(id, forceReload) {
+  const s = DATA_SOURCES.find((x) => x.id === id);
+  if (!s || !s.path) return;
+  if (!PAT) { openPatDialog(); return; }
+  if (!forceReload && DM && DM.src.id === id) { dmRenderEditor(); return; }
+  dmSetHead(s.title, s.repo + ' · ' + s.path);
+  dmTip('读取中…', false);
+  $('dmBody').innerHTML = '<div class="dmsec">正在从 GitHub 读取…</div>';
+  try {
+    const { text, sha } = await ghRead(s.repo, s.path);
+    let data;
+    try { data = JSON.parse(text); } catch (e) {
+      dmTip('这个文件不是合法 JSON，无法用表格编辑：' + String(e.message).slice(0, 60));
+      $('dmBody').innerHTML = '<div class="dmsec">解析失败，请在网页版处理。</div>';
+      return;
+    }
+    /* 若根对象只有"一个键、值又是对象/数组"，自动展开它 —— 省掉一次无意义点击
+       （如 qdii 的 {funds:[...]}、xueqiu 的 {users:{...}}） */
+    const path0 = [];
+    let probe = data;
+    while (probe && typeof probe === 'object' && !Array.isArray(probe)
+           && s.autoExpand && s.autoExpand.indexOf(path0.length === 0 ? s.autoExpand[0] : '') >= 0) {
+      const keys = Object.keys(probe);
+      if (keys.length !== 1) break;
+      const only = keys[0];
+      const v = probe[only];
+      if (!v || typeof v !== 'object') break;
+      /* autoExpand[0] 是白名单键名：只在键名匹配时展开一层 */
+      if (path0.length === 0 && s.autoExpand.indexOf(only) < 0) break;
+      path0.push(only);
+      probe = v;
+      break;   /* 只自动展开一层，避免误入深处 */
+    }
+    DM = { src: s, data: data, sha: sha, path: path0, dirty: false, raw: text, showHidden: false };
+    dmTip('');
+    dmRenderEditor();
+  } catch (e) {
+    /* 读取/渲染失败：保留一个可读的错误提示，不静默清空 */
+    const msg = String(e && e.message ? e.message : e);
+    dmTip('读取失败：' + msg.slice(0, 110));
+    $('dmBody').innerHTML = '<div class="dmsec">出错了（已显示在上方提示里）。可点右上角 ↻ 重试；'
+      + '若反复失败，请到网页版处理。</div><pre style="margin:0 13px;font-size:11px;color:var(--ink3);white-space:pre-wrap">'
+      + escapeHTML(msg).slice(0, 300) + '</pre>';
+    $('dmFoot').classList.remove('on');
+  }
+}
+
+/* ── 编辑器渲染 ── */
+function dmNode() { return DM ? DM.path.reduce((o, k) => (o == null ? o : o[k]), DM.data) : null; }
+function dmIsLeaf(v) { return v === null || typeof v !== 'object'; }
+function dmShow(v) {
+  if (v === null) return '（空）';
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'string') return v === '' ? '（空字符串）' : v;
+  return '';
+}
+
+function dmRenderEditor() {
+  const s = DM.src;
+  const node = dmNode();
+  dmSetHead(s.title, s.repo + ' · ' + (DM.path.length ? DM.path.join(' › ') : s.path) + (DM.dirty ? ' · 未保存' : ''));
+  dmTip('');
+  const body = $('dmBody');
+  let html = '';
+
+  if (Array.isArray(node)) {
+    /* 表格：列 = 各元素键的并集 */
+    const cols = [];
+    node.forEach((it) => {
+      if (it && typeof it === 'object' && !Array.isArray(it)) {
+        Object.keys(it).forEach((k) => { if (cols.indexOf(k) < 0) cols.push(k); });
+      }
+    });
+    const objRows = node.filter((it) => it && typeof it === 'object' && !Array.isArray(it)).length;
+    if (!cols.length) {
+      /* 纯值数组（如 ["a","b"]）→ 单列表格 */
+      html += '<div class="dmsec">' + node.length + ' 项（值数组）</div><div class="tblwrap">';
+      node.forEach((v, i) => {
+        html += '<div class="tblrow"><span class="cell" data-idx="' + i + '" data-leaf="1">'
+          + escapeHTML(dmShow(v)) + '</span><span class="del" data-del="' + i + '">✕</span></div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="dmsec">' + node.length + ' 行 · 点格子改值，点 ✕ 删行</div>';
+      html += '<div class="tblwrap"><div class="tblhead">'
+        + cols.map((c) => '<span class="cell">' + escapeHTML(c) + '</span>').join('')
+        + '<span class="del"></span></div>';
+      node.forEach((row, i) => {
+        const isObj = row && typeof row === 'object' && !Array.isArray(row);
+        html += '<div class="tblrow">'
+          + cols.map((c) => {
+            const v = isObj ? row[c] : undefined;
+            const cls = (v === undefined || v === null) ? ' vnull' : (typeof v === 'number' ? ' vnum' : '');
+            return '<span class="cell' + cls + '" data-idx="' + i + '" data-key="' + escapeHTML(c) + '">'
+              + escapeHTML(v === undefined ? '—' : dmShow(v)) + '</span>';
+          }).join('')
+          + '<span class="del" data-del="' + i + '">✕</span></div>';
+      });
+      html += '</div>';
+    }
+    html += '<div class="addrow" id="dmAdd">＋ 新增一行</div>';
+  } else if (node && typeof node === 'object') {
+    /* 键值表；嵌套值可点进去。内部字段（CI 自己维护的）默认收起，避免误改 */
+    const hide = (DM.path.length === 0 && s.hide) ? s.hide : [];
+    const allKeys = Object.keys(node);
+    const shownKeys = DM.showHidden ? allKeys : allKeys.filter((k) => hide.indexOf(k) < 0);
+    const hiddenCount = allKeys.length - shownKeys.length;
+    const keys = shownKeys;
+    html += '<div class="dmsec">' + keys.length + ' 个字段 · 点行编辑，嵌套结构可进入'
+      + (hide.length ? '（内部字段已收起）' : '') + '</div><div class="tblwrap">';
+    keys.forEach((k) => {
+      const v = node[k];
+      const nested = (v && typeof v === 'object');
+      const extra = Array.isArray(v) ? ('数组 ' + v.length + ' 项') : (nested ? ('对象 ' + Object.keys(v).length + ' 键') : '');
+      html += '<div class="kvrow" data-key="' + escapeHTML(k) + '" data-nested="' + (nested ? '1' : '0') + '">'
+        + '<span class="k">' + escapeHTML(k) + '</span>'
+        + '<span class="v' + (nested ? ' nested' : (v === null ? ' vnull' : '')) + '">'
+        + escapeHTML(nested ? (extra + ' ›') : dmShow(v)) + '</span></div>';
+    });
+    html += '</div>';
+    if (hiddenCount > 0 || (DM.showHidden && hide.length)) {
+      html += '<div class="addrow" id="dmToggleHidden">'
+        + (DM.showHidden ? '收起内部字段（' + hide.length + ' 个）' : '显示内部字段（' + hiddenCount + ' 个，一般不用改）')
+        + '</div>';
+    }
+  } else {
+    html += '<div class="dmsec">当前节点是单个值，请返回上一层通过格子编辑。</div>';
+  }
+
+  /* 路径面包屑（可点返回） */
+  if (DM.path.length) {
+    html = '<div class="dmsec" id="dmUp" style="color:var(--blue);font-weight:600">‹ 返回上一层（' + escapeHTML(DM.path.join(' › ')) + '）</div>' + html;
+  }
+  body.innerHTML = html;
+  dmBindEditor();
+  $('dmFoot').classList.add('on');
+  const btn = $('dmSaveBtn');
+  btn.textContent = DM.dirty ? '保存到仓库（有未保存改动）' : '保存到仓库';
+  btn.disabled = !DM.dirty;
+  btn.onclick = dmSave;
+}
+
+function dmBindEditor() {
+  const body = $('dmBody');
+  if ($('dmUp')) $('dmUp').onclick = () => { DM.path.pop(); dmRenderEditor(); };
+  if ($('dmAdd')) $('dmAdd').onclick = dmAddRow;
+  if ($('dmToggleHidden')) $('dmToggleHidden').onclick = () => { DM.showHidden = !DM.showHidden; dmRenderEditor(); };
+  Array.from(body.querySelectorAll('.cell')).forEach((el) => {
+    const idx = el.getAttribute('data-idx');
+    if (idx === null) return;
+    const key = el.getAttribute('data-key');
+    el.onclick = () => {
+      const arr = dmNode();
+      const cur = key === null ? arr[Number(idx)] : (arr[Number(idx)] || {})[key];
+      if (cur !== null && typeof cur === 'object') {
+        /* 数组里的嵌套字段 → 进入该节点（仅对象元素支持） */
+        dmTip('该字段是嵌套结构，暂不支持在此直接编辑（可在网页版处理）。');
+        return;
+      }
+      openCellEdit(key === null ? ('第 ' + (Number(idx) + 1) + ' 项') : key, cur, (val) => {
+        if (key === null) arr[Number(idx)] = val;
+        else {
+          if (!arr[Number(idx)] || typeof arr[Number(idx)] !== 'object') arr[Number(idx)] = {};
+          arr[Number(idx)][key] = val;
+        }
+        DM.dirty = true;
+        dmRenderEditor();
+      });
+    };
+  });
+  Array.from(body.querySelectorAll('.del')).forEach((el) => {
+    const i = el.getAttribute('data-del');
+    if (i === null) return;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const arr = dmNode();
+      arr.splice(Number(i), 1);
+      DM.dirty = true;
+      dmRenderEditor();
+    };
+  });
+  Array.from(body.querySelectorAll('.kvrow')).forEach((el) => {
+    const k = el.getAttribute('data-key');
+    const nested = el.getAttribute('data-nested') === '1';
+    el.onclick = () => {
+      if (nested) { DM.path.push(k); dmRenderEditor(); return; }
+      openCellEdit(k, dmNode()[k], (val) => { dmNode()[k] = val; DM.dirty = true; dmRenderEditor(); });
+    };
+  });
+}
+
+function dmAddRow() {
+  const node = dmNode();
+  if (!Array.isArray(node)) return;
+  /* 以最后一行的字段做模板（空值），便于快速填 */
+  const tpl = {};
+  for (let i = node.length - 1; i >= 0; i--) {
+    if (node[i] && typeof node[i] === 'object' && !Array.isArray(node[i])) {
+      Object.keys(node[i]).forEach((k) => { tpl[k] = (typeof node[i][k] === 'number') ? 0 : ''; });
+      break;
+    }
+  }
+  node.push(Object.keys(tpl).length ? tpl : '');
+  DM.dirty = true;
+  dmRenderEditor();
+}
+
+/* ── 保存（含 sha 校验）── */
+async function dmSave() {
+  if (!DM) return;
+  const btn = $('dmSaveBtn');
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+  const s = DM.src;
+  try {
+    /* 保存前重新读一次：如果远端 sha 变了，说明仓库被（CI）改过 —— 不盲目覆盖 */
+    const fresh = await ghRead(s.repo, s.path);
+    if (fresh.sha !== DM.sha) {
+      DM.sha = fresh.sha;
+      DM.raw = fresh.text;
+      dmTip('⚠️ 仓库里这个文件刚被改动过（可能是 CI 自动更新）。你手上这份是基于旧版本编辑的，'
+        + '继续保存会覆盖掉那次改动。若要保留对方改动，请点"重新加载"后再改。');
+      btn.disabled = false;
+      btn.textContent = '仍要覆盖保存';
+      btn.onclick = dmSaveForce;
+      return;
+    }
+    await dmWrite(s.repo, s.path, JSON.stringify(DM.data, null, 2) + '\n', DM.sha, 'chore(data): 维护 ' + s.path + '（App 数据维护）');
+    await dmAfterSave();
+  } catch (e) {
+    dmTip('保存失败：' + String(e.message).slice(0, 110));
+    btn.disabled = false;
+    btn.textContent = '重试保存';
+  }
+}
+
+async function dmSaveForce() {
+  const btn = $('dmSaveBtn');
+  btn.disabled = true;
+  btn.textContent = '覆盖保存中…';
+  const s = DM.src;
+  try {
+    await ghWrite(s.repo, s.path, JSON.stringify(DM.data, null, 2) + '\n', DM.sha, 'chore(data): 维护 ' + s.path + '（App 数据维护·覆盖）');
+    await dmAfterSave();
+  } catch (e) {
+    dmTip('覆盖保存失败：' + String(e.message).slice(0, 110));
+    btn.disabled = false;
+    btn.textContent = '重试保存';
+  }
+}
+
+async function dmAfterSave() {
+  /* 保存成功后重新读回 sha（下次保存要用新 sha） */
+  try {
+    const fresh = await ghRead(DM.src.repo, DM.src.path);
+    DM.sha = fresh.sha;
+  } catch (e) { /* 忽略 */ }
+  DM.dirty = false;
+  dmTip('✓ 已保存到 ' + DM.src.repo + '（' + DM.src.path + '）', false);
+  dmRenderEditor();
+}
+
+/* ── 单元格 / 键值编辑弹层 ── */
+let EditCb = null;
+function openCellEdit(label, cur, cb) {
+  EditCb = cb;
+  $('editTitle').textContent = '编辑：' + label;
+  const isNum = typeof cur === 'number';
+  const isBool = typeof cur === 'boolean';
+  $('editHint').innerHTML = isBool
+    ? '布尔值：填 <b>true</b> 或 <b>false</b>'
+    : (isNum ? '数字（可含小数）' : '直接输入文本；留空表示空字符串');
+  const inp = $('editInput');
+  inp.type = isNum ? 'number' : 'text';
+  inp.value = cur === null || cur === undefined ? '' : String(cur);
+  $('editMask').classList.add('on');
+  setTimeout(() => { try { inp.focus(); } catch (e) { /* 忽略 */ } }, 120);
+}
+function closeCellEdit() { $('editMask').classList.remove('on'); EditCb = null; }
+
+function openPatDialog() {
+  $('patInput').value = PAT || '';
+  $('patMask').classList.add('on');
+  setTimeout(() => { try { $('patInput').focus(); } catch (e) { /* 忽略 */ } }, 120);
 }
 
 /* ───────────── 原生增强 ───────────── */
@@ -651,8 +1334,11 @@ async function boot() {
   setupTabs();
   setupSeg();
   setupMine();
+  await loadTheme();          // 主题（跟随系统/浅色/深色）
+  await loadPat();            // GitHub PAT（数据维护用）
   await loadCfg();            // 先读配置，再按配置渲染
   setupCfgPanel();
+  setupDataMaint();
   renderTools();
   setupPullRefresh();
   const ed = defaultEdition();

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>老张工具箱</title>
-  <script type="module" crossorigin src="./assets/index-BXFmZ8CE.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-2bJzeu69.css">
+  <script type="module" crossorigin src="./assets/index-Cg1pN749.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CtTl4z3c.css">
 </head>
 <body>
 <div class="app">
@@ -15,10 +15,12 @@
 
   <main class="content" id="content">
 
+    <!-- 下拉刷新提示条：新闻页与资产页共用（放在 pane 之外，两个页签都能看到） -->
+    <div class="pull" id="pullHint">下拉刷新</div>
+
     <!-- ① 新闻（默认）：原生渲染，读 news-feed -->
     <section class="pane on" id="pane-news">
       <div class="tip" id="nativeTip"></div>
-      <div class="pull" id="pullHint">下拉刷新</div>
       <div class="seg" id="seg">
         <button class="on" data-ed="afternoon">🍵 下午茶</button>
         <button data-ed="night">🥛 夜豆浆</button>
@@ -38,22 +40,22 @@
       </div>
 
       <div class="g4">
-        <div class="card">
-          <div class="t"><span class="dot"></span>A股大盘</div>
+        <div class="card" data-board="market">
+          <div class="t"><span class="dot"></span>全球指数<span class="hint">点击进看板</span></div>
           <div class="rows" id="gridMarket"><div class="ph">加载中…</div></div>
         </div>
-        <div class="card">
-          <div class="t"><span class="dot" style="background:#e6a23c"></span>我的持仓</div>
+        <div class="card" data-board="hold">
+          <div class="t"><span class="dot" style="background:#e6a23c"></span>我的持仓<span class="hint">点击进看板</span></div>
           <div class="rows" id="gridHold"><div class="ph">加载中…</div></div>
         </div>
-        <div class="card wide">
+        <div class="card wide" data-board="val">
           <div class="t"><span class="dot" style="background:#7c3aed"></span>估值水位
-            <span class="hint">PE 历史百分位 · 越红越贵</span></div>
+            <span class="hint">PE 历史百分位 · 股息率</span></div>
           <div class="vrows" id="gridVal"><div class="ph">加载中…</div></div>
         </div>
         <div class="card wide">
-          <div class="t"><span class="dot" style="background:#dc2626"></span>海外投资
-            <span class="hint">场内取溢价最小 · 场外取额度最高</span></div>
+          <div class="t" data-qdii-detail><span class="dot" style="background:#dc2626"></span>海外投资
+            <span class="hint">场内取溢价最小 · 场外取额度最高 ›</span></div>
           <div class="two">
             <div><div class="subt">场内 ETF</div><div class="rows" id="gridEtf"><div class="ph">加载中…</div></div></div>
             <div><div class="subt">场外 QDII</div><div class="rows" id="gridOd"><div class="ph">加载中…</div></div></div>
@@ -66,6 +68,14 @@
 
     <!-- ③ 工具：资产板块设置 + 现有全部模块 -->
     <section class="pane" id="pane-tools">
+      <div class="entry" id="rowDataMaint">
+        <span class="ei">🗂️</span>
+        <div class="etx">
+          <div class="et">数据维护</div>
+          <div class="ed">改各项目的手工数据（提交到 GitHub 仓库）</div>
+        </div>
+        <span class="ea">›</span>
+      </div>
       <div class="entry" id="rowAssetCfg">
         <span class="ei">⚙️</span>
         <div class="etx">
@@ -84,11 +94,10 @@
     <section class="pane" id="pane-mine">
       <div class="list2">
         <div class="lrow" id="rowSync"><span class="li">🔄</span>云同步设置<span class="lv">Gitee ›</span></div>
-        <div class="lrow" id="rowNotify"><span class="li">🔔</span>新闻通知<span class="lv">07:00 / 15:20</span></div>
-        <div class="lrow" id="rowRead"><span class="li">✅</span>已读标记<span class="lv">待开发</span></div>
-        <div class="lrow" id="rowTheme"><span class="li">🌓</span>外观<span class="lv">跟随系统</span></div>
-        <div class="lrow" id="rowDiag"><span class="li">🩺</span>诊断信息<span class="lv">›</span></div>
-        <div class="lrow" id="rowAbout"><span class="li">ℹ️</span>关于<span class="lv" id="verLabel">v0.8 ›</span></div>
+        <div class="lrow" id="rowTheme"><span class="li">🌓</span>外观<span class="lv" id="themeLabel">跟随系统 ›</span></div>
+        <div class="lrow" id="rowDiag"><span class="li">🩺</span>诊断信息<span class="lv">含连通性自检 ›</span></div>
+        <div class="lrow" id="rowClear"><span class="li">🧹</span>清空本地缓存<span class="lv">›</span></div>
+        <div class="lrow" id="rowAbout"><span class="li">ℹ️</span>关于<span class="lv" id="verLabel">v0.11 ›</span></div>
       </div>
     </section>
 
@@ -119,7 +128,10 @@
     <div class="sheet">
       <h2 id="sheetTitle">信息</h2>
       <pre id="sheetBody"></pre>
-      <button class="close" id="sheetClose">关闭</button>
+      <div class="cfgfoot">
+        <button class="ghost" id="sheetCopy" style="display:none">复制</button>
+        <button class="close" id="sheetClose">关闭</button>
+      </div>
     </div>
   </div>
 
@@ -132,6 +144,47 @@
       <div class="cfgfoot">
         <button class="ghost" id="cfgReset">恢复默认</button>
         <button class="close" id="cfgClose">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全屏：数据维护 -->
+  <div class="dm" id="dm">
+    <div class="dm-head">
+      <button class="dm-icon" id="dmBack">‹</button>
+      <div class="dm-htitle">
+        <div class="dm-h1" id="dmTitle">数据维护</div>
+        <div class="dm-h2" id="dmSub"></div>
+      </div>
+      <button class="dm-icon" id="dmReload" title="重新加载">↻</button>
+    </div>
+    <div class="dm-tip" id="dmTip"></div>
+    <div class="dm-body" id="dmBody"></div>
+    <div class="dm-foot" id="dmFoot"><button id="dmSaveBtn">保存到仓库</button></div>
+  </div>
+
+  <!-- 弹层：单元格编辑 -->
+  <div class="mask" id="editMask">
+    <div class="sheet edit">
+      <h2 id="editTitle">编辑</h2>
+      <div class="edithint" id="editHint"></div>
+      <input class="editinput" id="editInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="cfgfoot">
+        <button class="ghost" id="editCancel">取消</button>
+        <button class="close" id="editOk">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 弹层：PAT 配置 -->
+  <div class="mask" id="patMask">
+    <div class="sheet edit">
+      <h2>GitHub PAT</h2>
+      <div class="edithint">需要一个有 <b>repo</b> 权限的 Personal Access Token（细粒度令牌请勾选目标仓库的 Contents 读写）。<br>只存在本机（应用沙箱），不会上传到任何服务器。</div>
+      <input class="editinput" id="patInput" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_xxx 或 github_pat_xxx">
+      <div class="cfgfoot">
+        <button class="ghost" id="patClear">清除已存</button>
+        <button class="close" id="patSave">保存</button>
       </div>
     </div>
   </div>
