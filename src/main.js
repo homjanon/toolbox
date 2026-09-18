@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.11';
+const APP_VERSION = 'v0.12';
 const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
 const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
 const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
@@ -658,8 +658,11 @@ function setupDataMaint() {
     if (t2 === 'number') val = raw === '' ? 0 : Number(raw);
     else if (raw === 'true') val = true;
     else if (raw === 'false') val = false;
+    /* ⚠️ 必须先取出回调再关闭弹层 —— closeCellEdit 会把 EditCb 置 null，
+       早期写成「先 close 再 if (EditCb)」导致回调永不执行（改值不生效）。 */
+    const cb = EditCb;
     closeCellEdit();
-    if (EditCb) EditCb(val);
+    if (typeof cb === 'function') cb(val);
   });
   $('patClear').addEventListener('click', async () => {
     await savePat('');
@@ -674,6 +677,24 @@ function setupDataMaint() {
     dmRenderList();
   });
   $('patMask').addEventListener('click', (e) => { if (e.target === $('patMask')) $('patMask').classList.remove('on'); });
+
+  /* Secret 首次粘贴 */
+  $('pasteCancel').addEventListener('click', () => $('pasteMask').classList.remove('on'));
+  $('pasteMask').addEventListener('click', (e) => { if (e.target === $('pasteMask')) $('pasteMask').classList.remove('on'); });
+  $('pasteOk').addEventListener('click', async () => {
+    const raw = $('pasteInput').value.trim();
+    if (!raw) { $('pasteHint').textContent = '请先粘贴内容（JSON）。'; return; }
+    let obj;
+    try { obj = JSON.parse(raw); } catch (e) {
+      $('pasteHint').innerHTML = 'JSON 解析失败：' + escapeHTML(String(e.message).slice(0, 80)) + '<br>请检查内容是否为合法 JSON。';
+      return;
+    }
+    const s = DATA_SOURCES.find((x) => x.id === 'cmb_secret');
+    await secretCacheSet(s.secret, obj);
+    $('pasteMask').classList.remove('on');
+    DM = { src: s, data: obj, sha: null, path: [], dirty: false, isSecret: true, showHidden: false };
+    dmOpenSource('cmb_secret');
+  });
 }
 
 function setupCfgPanel() {
@@ -881,10 +902,10 @@ const DATA_SOURCES = [
     path: 'data/mentions.json', desc: '大V标的提及追踪表（增量合并，手改不被 CI 冲掉）',
     autoExpand: ['users'], hide: ['schema_version', 'updated_at'] },
   { id: 'cmb_secret', icon: '🏦', title: 'cmb 持仓成本', repo: 'homjanon/cmb-tracker',
-    kind: 'secret', desc: 'GitHub Secret HOLDINGS_JSON（需加密，走网页版）',
-    web: 'https://homjanon.github.io/github-ops/github-data-maintainer.html' },
+    kind: 'secret', secret: 'HOLDINGS_JSON',
+    desc: 'GitHub Secret · 加密写入，值只存本机（GitHub 不可回读）' },
 ];
-const DM_WEB_INDEX = 'https://homjanon.github.io/github-ops/';
+const SECRET_CACHE_PREFIX = 'toolbox.secret.';
 
 let PAT = '';
 let DM = null;   /* { src, data, sha, path:[], dirty } */
@@ -941,6 +962,26 @@ async function ghWrite(repo, path, text, sha, message) {
     body: JSON.stringify({ message: message, content: textToB64(text), sha: sha, branch: GH_BRANCH }),
   });
 }
+
+/* ── Secret：加密写入（libsodium sealed box）──
+   GitHub Secret 一经写入不可回读，所以值只能缓存本机；
+   写入流程：取仓库公钥 → crypto_box_seal 加密 → PUT /actions/secrets/{name} */
+async function ghWriteSecret(repo, name, value) {
+  if (!window.sodium) throw new Error('加密库未加载（libsodium）');
+  const pk = await ghApi('/repos/' + repo + '/actions/secrets/public-key');
+  await sodium.ready;
+  const pub = sodium.from_base64(pk.key, sodium.base64_variants.ORIGINAL);
+  const sealed = sodium.crypto_box_seal(sodium.from_string(value), pub);
+  const enc = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
+  return ghApi('/repos/' + repo + '/actions/secrets/' + name, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ encrypted_value: enc, key_id: pk.key_id }),
+  });
+}
+
+async function secretCacheGet(name) { return kvGet(SECRET_CACHE_PREFIX + name); }
+async function secretCacheSet(name, obj) { return kvSet(SECRET_CACHE_PREFIX + name, obj); }
 
 /* ── PAT ── */
 async function loadPat() {
@@ -1001,32 +1042,42 @@ function dmRenderList() {
     html += '<div class="srcrow' + (isSecret ? ' locked' : '') + '" data-src="' + s.id + '">'
       + '<span class="si">' + s.icon + '</span>'
       + '<div class="stx"><div class="s1">' + escapeHTML(s.title) + '</div>'
-      + '<div class="s2">' + escapeHTML(s.repo + (s.path ? ' · ' + s.path : ' · Secret')) + '</div></div>'
-      + '<span class="ss">' + (isSecret ? '↗' : '›') + '</span></div>';
+      + '<div class="s2">' + escapeHTML(s.repo + (s.path ? ' · ' + s.path : ' · Secret（加密写入）')) + '</div></div>'
+      + '<span class="ss">›</span></div>';
   });
-  html += '<div class="addrow" id="dmWeb">打开网页版（含 Secret 与更多数据源）</div>';
   $('dmBody').innerHTML = html;
 
   if ($('dmPat')) $('dmPat').onclick = openPatDialog;
-  $('dmWeb').onclick = () => go(DM_WEB_INDEX, '数据维护（网页版）');
   Array.from($('dmBody').querySelectorAll('.srcrow')).forEach((el) => {
-    el.onclick = () => {
-      const s = DATA_SOURCES.find((x) => x.id === el.getAttribute('data-src'));
-      if (!s) return;
-      if (s.kind === 'secret') {
-        if (s.web) go(s.web, s.title + '（网页版）');
-        return;
-      }
-      dmOpenSource(s.id);
-    };
+    el.onclick = () => dmOpenSource(el.getAttribute('data-src'));
   });
 }
 
 /* ── 读取并进入编辑器 ── */
 async function dmOpenSource(id, forceReload) {
   const s = DATA_SOURCES.find((x) => x.id === id);
-  if (!s || !s.path) return;
+  if (!s) return;
   if (!PAT) { openPatDialog(); return; }
+
+  /* Secret 类：值只在本机缓存里（GitHub 不可回读） */
+  if (s.kind === 'secret') {
+    dmSetHead(s.title, s.repo + ' · Secret ' + s.secret);
+    dmTip('');
+    const cached = await secretCacheGet(s.secret);
+    if (cached && cached !== undefined) {
+      DM = { src: s, data: cached, sha: null, path: [], dirty: false, isSecret: true, showHidden: false };
+      dmRenderEditor();
+      return;
+    }
+    /* 首次：引导粘贴当前值 */
+    $('dmBody').innerHTML = '<div class="dmsec">这个 Secret 还没有本机副本。</div>'
+      + '<div class="addrow" id="dmPaste">粘贴当前值（首次必做）</div>'
+      + '<div class="dmsec" style="line-height:1.7">说明：GitHub Secret 写入后<b>不可回读</b>（这是 GitHub 的设计，任何人都读不出来）。'
+      + '所以需要你把当前值粘贴一次，之后 App 会记住它，你就能随时编辑并重新写入了。</div>';
+    $('dmFoot').classList.remove('on');
+    if ($('dmPaste')) $('dmPaste').onclick = () => openPasteDialog(s);
+    return;
+  }
   if (!forceReload && DM && DM.src.id === id) { dmRenderEditor(); return; }
   dmSetHead(s.title, s.repo + ' · ' + s.path);
   dmTip('读取中…', false);
@@ -1084,7 +1135,10 @@ function dmShow(v) {
 function dmRenderEditor() {
   const s = DM.src;
   const node = dmNode();
-  dmSetHead(s.title, s.repo + ' · ' + (DM.path.length ? DM.path.join(' › ') : s.path) + (DM.dirty ? ' · 未保存' : ''));
+  const loc = DM.isSecret
+    ? ('Secret ' + s.secret)
+    : (DM.path.length ? DM.path.join(' › ') : s.path);
+  dmSetHead(s.title, s.repo + ' · ' + loc + (DM.dirty ? ' · 未保存' : ''));
   dmTip('');
   const body = $('dmBody');
   let html = '';
@@ -1161,7 +1215,9 @@ function dmRenderEditor() {
   dmBindEditor();
   $('dmFoot').classList.add('on');
   const btn = $('dmSaveBtn');
-  btn.textContent = DM.dirty ? '保存到仓库（有未保存改动）' : '保存到仓库';
+  btn.textContent = DM.dirty
+    ? (DM.isSecret ? '加密写入 Secret（有未保存改动）' : '保存到仓库（有未保存改动）')
+    : (DM.isSecret ? '加密写入 Secret' : '保存到仓库');
   btn.disabled = !DM.dirty;
   btn.onclick = dmSave;
 }
@@ -1239,22 +1295,32 @@ async function dmSave() {
   btn.textContent = '保存中…';
   const s = DM.src;
   try {
-    /* 保存前重新读一次：如果远端 sha 变了，说明仓库被（CI）改过 —— 不盲目覆盖 */
+    /* ── Secret 类：加密写入（GitHub Secret 不可回读，故无 sha 校验）── */
+    if (DM.isSecret) {
+      await ghWriteSecret(s.repo, s.secret, JSON.stringify(DM.data));
+      await secretCacheSet(s.secret, DM.data);
+      DM.dirty = false;
+      dmTip('✓ 已加密写入 GitHub Secret ' + s.secret + '（值只存本机，GitHub 端不可回读）', false);
+      dmRenderEditor();
+      return;
+    }
+    /* ── 普通文件：保存前重新读一次，若远端 sha 变了（多半是 CI 改的）就不盲目覆盖 ── */
     const fresh = await ghRead(s.repo, s.path);
     if (fresh.sha !== DM.sha) {
       DM.sha = fresh.sha;
       DM.raw = fresh.text;
       dmTip('⚠️ 仓库里这个文件刚被改动过（可能是 CI 自动更新）。你手上这份是基于旧版本编辑的，'
-        + '继续保存会覆盖掉那次改动。若要保留对方改动，请点"重新加载"后再改。');
+        + '继续保存会覆盖掉那次改动。若要保留对方改动，请点右上角 ↻ 重新加载后再改。');
       btn.disabled = false;
       btn.textContent = '仍要覆盖保存';
       btn.onclick = dmSaveForce;
       return;
     }
-    await dmWrite(s.repo, s.path, JSON.stringify(DM.data, null, 2) + '\n', DM.sha, 'chore(data): 维护 ' + s.path + '（App 数据维护）');
+    await ghWrite(s.repo, s.path, JSON.stringify(DM.data, null, 2) + '\n', DM.sha,
+      'chore(data): 维护 ' + s.path + '（App 数据维护）');
     await dmAfterSave();
   } catch (e) {
-    dmTip('保存失败：' + String(e.message).slice(0, 110));
+    dmTip('保存失败：' + String(e.message || e).slice(0, 120));
     btn.disabled = false;
     btn.textContent = '重试保存';
   }
@@ -1266,17 +1332,18 @@ async function dmSaveForce() {
   btn.textContent = '覆盖保存中…';
   const s = DM.src;
   try {
-    await ghWrite(s.repo, s.path, JSON.stringify(DM.data, null, 2) + '\n', DM.sha, 'chore(data): 维护 ' + s.path + '（App 数据维护·覆盖）');
+    await ghWrite(s.repo, s.path, JSON.stringify(DM.data, null, 2) + '\n', DM.sha,
+      'chore(data): 维护 ' + s.path + '（App 数据维护·覆盖）');
     await dmAfterSave();
   } catch (e) {
-    dmTip('覆盖保存失败：' + String(e.message).slice(0, 110));
+    dmTip('覆盖保存失败：' + String(e.message || e).slice(0, 120));
     btn.disabled = false;
     btn.textContent = '重试保存';
   }
 }
 
 async function dmAfterSave() {
-  /* 保存成功后重新读回 sha（下次保存要用新 sha） */
+  /* 保存成功后重新读回 sha（下次保存要用新的） */
   try {
     const fresh = await ghRead(DM.src.repo, DM.src.path);
     DM.sha = fresh.sha;
@@ -1303,6 +1370,14 @@ function openCellEdit(label, cur, cb) {
   setTimeout(() => { try { inp.focus(); } catch (e) { /* 忽略 */ } }, 120);
 }
 function closeCellEdit() { $('editMask').classList.remove('on'); EditCb = null; }
+
+function openPasteDialog(s) {
+  $('pasteHint').innerHTML = 'GitHub Secret 写入后<b>不可回读</b>，所以首次使用要粘贴一次当前值。'
+    + '粘贴后只存在本机，之后可随时编辑并重新写入。<br>内容是 JSON（数组或对象）。';
+  $('pasteInput').value = '';
+  $('pasteMask').classList.add('on');
+  setTimeout(() => { try { $('pasteInput').focus(); } catch (e) { /* 忽略 */ } }, 120);
+}
 
 function openPatDialog() {
   $('patInput').value = PAT || '';

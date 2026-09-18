@@ -175,6 +175,19 @@
     </div>
   </div>
 
+  <!-- 弹层：Secret 首次粘贴当前值 -->
+  <div class="mask" id="pasteMask">
+    <div class="sheet edit">
+      <h2>粘贴当前值</h2>
+      <div class="edithint" id="pasteHint">GitHub Secret 写入后<b>不可回读</b>，所以首次使用要粘贴一次当前值。粘贴后只存在本机，之后可随时编辑并重新写入。</div>
+      <textarea class="editinput editarea" id="pasteInput" rows="8" spellcheck="false" autocapitalize="off" placeholder='[{"code":"600036","name":"招商银行","cost":38.5}]'></textarea>
+      <div class="cfgfoot">
+        <button class="ghost" id="pasteCancel">取消</button>
+        <button class="close" id="pasteOk">解析并保存到本机</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 弹层：PAT 配置 -->
   <div class="mask" id="patMask">
     <div class="sheet edit">
@@ -189,6 +202,8 @@
   </div>
 </div>
 
+<!-- 内嵌加密库：写 GitHub Secret 需要 libsodium sealed-box（离线可用，不联网） -->
+<script src="./libsodium-sumo.min.js"></script>
 <script type="module" src="./main.js"></script>
 </body>
 </html>
