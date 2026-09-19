@@ -52,9 +52,9 @@
             <span class="hint">PE 历史百分位 · 股息率</span></div>
           <div class="vrows" id="gridVal"><div class="ph">加载中…</div></div>
         </div>
-        <div class="card wide">
-          <div class="t" data-qdii-detail><span class="dot" style="background:#dc2626"></span>海外投资
-            <span class="hint">场内取溢价最小 · 场外取额度最高 ›</span></div>
+        <div class="card wide" data-qdii-detail>
+          <div class="t"><span class="dot" style="background:#dc2626"></span>海外投资
+            <span class="hint">点开看明细 ›</span></div>
           <div class="two">
             <div><div class="subt">场内 ETF</div><div class="rows" id="gridEtf"><div class="ph">加载中…</div></div></div>
             <div><div class="subt">场外 QDII</div><div class="rows" id="gridOd"><div class="ph">加载中…</div></div></div>
@@ -184,6 +184,29 @@
       <div class="cfgfoot">
         <button class="ghost" id="pasteCancel">取消</button>
         <button class="close" id="pasteOk">解析并保存到本机</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 弹层：外观（三行可点选项） -->
+  <div class="mask" id="themeMask">
+    <div class="sheet">
+      <h2>外观</h2>
+      <div class="edithint" style="margin-bottom:10px">点一下即生效，设置存在本机。</div>
+      <div class="optlist" id="themeList"></div>
+      <button class="close" id="themeClose" style="margin-top:14px">关闭</button>
+    </div>
+  </div>
+
+  <!-- 弹层：QDII 明细（表格） -->
+  <div class="mask" id="qdiiMask">
+    <div class="sheet detail">
+      <h2 id="qdiiTitle">QDII 明细</h2>
+      <div class="det-sub" id="qdiiSub"></div>
+      <div class="det-scroll" id="qdiiBody"></div>
+      <div class="cfgfoot">
+        <button class="ghost" id="qdiiGo">净值跟踪</button>
+        <button class="close" id="qdiiClose">关闭</button>
       </div>
     </div>
   </div>

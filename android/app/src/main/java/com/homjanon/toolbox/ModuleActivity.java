@@ -56,29 +56,8 @@ public class ModuleActivity extends AppCompatActivity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF6F7F9);
+        root.setBackgroundColor(0xFFFFFFFF);
         // 注意：这里不能 setFitsSystemWindows(true)，否则下方 insets 监听器失效
-
-        /* ── 极简顶栏：左「‹ 返回」 …… 右「⌂ 首页」 ── */
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(12), dp(11), dp(12), dp(11));
-        bar.setBackgroundColor(0xFFFFFFFF);
-
-        TextView back = navText("‹ 返回");
-        back.setOnClickListener(v -> onBack());
-        bar.addView(back);
-
-        View spacer = new View(this);
-        bar.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));   // 中间留空（不再显示模块名）
-
-        TextView home = navText("⌂ 首页");
-        home.setOnClickListener(v -> finish());
-        bar.addView(home);
-
-        root.addView(bar, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         /* ── WebView ── */
         webView = new WebView(this);
@@ -123,16 +102,7 @@ public class ModuleActivity extends AppCompatActivity {
         else finish();
     }
 
-    private TextView navText(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(15f);
-        t.setTextColor(0xFF2563EB);
-        t.setPadding(dp(8), dp(5), dp(8), dp(5));
-        t.setClickable(true);
-        return t;
-    }
-
+    
     private boolean isAllowed(String host) {
         if (host == null) return false;
         String h = host.toLowerCase();

@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.12';
+const APP_VERSION = 'v0.13';
 const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
 const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
 const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
@@ -66,14 +66,35 @@ async function setTheme(mode) {
   applyTheme();
 }
 
-function pickTheme() {
-  const cur = (m) => (THEME === m ? '● ' : '○ ');
-  const body = '当前：' + (THEME === 'auto' ? '跟随系统' : (THEME === 'dark' ? '深色' : '浅色')) + '\n\n'
-    + '回复数字即可切换：\n'
-    + '  1. ' + cur('auto') + '跟随系统\n'
-    + '  2. ' + cur('light') + '浅色\n'
-    + '  3. ' + cur('dark') + '深色';
-  sheet('外观', body);
+/* ───────────── 外观（三行可点选项）─────────────
+   ⚠️ 不要写成"回复数字切换"—— App 里没有对话框，必须是可点元素。 */
+const THEME_OPTS = [
+  { k: 'auto', label: '跟随系统', sub: '随手机设置自动切换' },
+  { k: 'light', label: '浅色', sub: '' },
+  { k: 'dark', label: '深色', sub: '' },
+];
+
+function renderThemeDialog() {
+  const box = $('themeList');
+  if (!box) return;
+  box.innerHTML = THEME_OPTS.map((o) => {
+    const sel = THEME === o.k;
+    const tail = sel ? '<span class="sub2">当前</span>'
+      : (o.sub ? '<span class="sub2">' + o.sub + '</span>' : '');
+    return '<div class="optrow' + (sel ? ' sel' : '') + '" data-theme-opt="' + o.k + '">'
+      + '<span class="ck">' + (sel ? '✓' : '') + '</span>' + escapeHTML(o.label) + tail + '</div>';
+  }).join('');
+  Array.from(box.querySelectorAll('.optrow')).forEach((el) => {
+    el.onclick = async () => {
+      await setTheme(el.getAttribute('data-theme-opt'));
+      renderThemeDialog();          // 重渲染以更新打勾与"当前"
+    };
+  });
+}
+
+function openThemeDialog() {
+  renderThemeDialog();
+  $('themeMask').classList.add('on');
 }
 
 /* ───────────── 四格配置 ───────────── */
@@ -97,7 +118,8 @@ const FUND_NAMES = {
   '007721': '天弘标普500(FOF)A', '007722': '天弘标普500(FOF)C',
   '008401': '大成标普500C', '096001': '大成标普500A', '017641': '摩根标普500A',
   '019736': '宝盈纳指100A', '019737': '宝盈纳指100C', '018043': '天弘纳指100A',
-  '018044': '天弘纳指100C', '019441': '万家纳指100A',
+  '018044': '天弘纳指100C', '019441': '万家纳指100A', '019442': '万家纳指100C',
+  '017642': '摩根标普500美钞', '019305': '摩根标普500C', '160213': '国泰纳指100（场外）',
 };
 
 let CFG = { ...DEFAULT_CFG };
@@ -522,11 +544,12 @@ function renderAssetBoards() {
   renderQuoteBoard('gridHold', CFG.hold);
   renderValBoard(CFG.val);
   renderOverseas();
-  const odTitle = document.querySelector('[data-qdii-detail]');
-  if (odTitle && !odTitle.__bound) {
-    odTitle.__bound = true;
-    odTitle.style.cursor = 'pointer';
-    odTitle.addEventListener('click', showQdiiDetail);
+  /* 海外投资：绑定【整张卡片】（原来只绑标题行 → 点内容没反应） */
+  const odCard = document.querySelector('[data-qdii-detail]');
+  if (odCard && !odCard.__bound) {
+    odCard.__bound = true;
+    odCard.style.cursor = 'pointer';
+    odCard.addEventListener('click', showQdiiDetail);
   }
   const st = $('assetStamp');
   if (st) {
@@ -545,33 +568,36 @@ async function loadAssetData() {
   renderAssetBoards();
 }
 
-/* ───────────── QDII 明细（完整清单）───────────── */
+/* ───────────── QDII 明细（表格化）───────────── */
+function qdiiRowsHTML(obj, valKey, cls, fmt, asc) {
+  const arr = Object.entries(obj)
+    .map(([c, v]) => ({ c, v: v[valKey] }))
+    .filter((x) => x.v !== null && x.v !== undefined);
+  if (!arr.length) return '<div class="det-empty">暂无数据</div>';
+  arr.sort((a, b) => (asc ? a.v - b.v : b.v - a.v));   /* 溢价升序(越小越好) / 额度降序(越大越好) */
+  return arr.map((x, i) => '<div class="det-tr' + (i === 0 ? ' best' : '') + '">'
+    + '<span class="nm">' + escapeHTML(FUND_NAMES[x.c] || (x.c + '（未收录名称）')) + '</span>'
+    + '<span class="vv ' + cls + '">' + fmt(x.v) + '</span></div>').join('');
+}
+
 function showQdiiDetail() {
   if (!QDII) { sheet('QDII 明细', '数据还没加载完，请稍后再试。'); return; }
   const etf = QDII['场内ETF'] || {};
   const z = QDII['场外QDII'] || {};
   const za = QDII['场外QDII主动'] || {};
-  const lines = [];
   const dateStr = String(QDII['日期'] || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
-  lines.push('数据日期：' + dateStr + '（上一交易日）');
-  lines.push('');
-  lines.push('【场内 ETF 溢价率】越低越值得买');
-  Object.entries(etf).sort((a, b) => (a[1]['溢价率'] || 0) - (b[1]['溢价率'] || 0))
-    .forEach(([c, v]) => lines.push(
-      '  ' + (FUND_NAMES[c] || c).padEnd(18, ' ') + ' +' + (v['溢价率'] || 0).toFixed(2) + '%'));
-  lines.push('');
-  lines.push('【场外 · 纳指100/标普500 系 日限额】越多越好买');
-  Object.entries(z).sort((a, b) => (b[1]['日累计限定金额'] || 0) - (a[1]['日累计限定金额'] || 0))
-    .forEach(([c, v]) => lines.push(
-      '  ' + (FUND_NAMES[c] || c).padEnd(18, ' ') + ' ' + Math.round(v['日累计限定金额'] || 0) + ' 元/日'));
-  lines.push('');
-  lines.push('【场外 · 主动型 QDII 日限额】');
-  Object.entries(za).sort((a, b) => (b[1]['日累计限定金额'] || 0) - (a[1]['日累计限定金额'] || 0))
-    .forEach(([c, v]) => lines.push(
-      '  ' + (FUND_NAMES[c] || c).padEnd(18, ' ') + ' ' + Math.round(v['日累计限定金额'] || 0) + ' 元/日'));
-  lines.push('');
-  lines.push('（完整净值走势见「QDII 净值跟踪」模块）');
-  sheet('QDII 明细 · ' + dateStr, lines.join('\n'));
+
+  $('qdiiTitle').textContent = 'QDII 明细';
+  $('qdiiSub').textContent = '数据日期 ' + dateStr + '（上一交易日）· 溢价为场内净值溢价率，额度为场外日申购上限';
+  const head = (t2) => '<div class="det-tr head"><span class="nm">基金</span><span class="vv">' + t2 + '</span></div>';
+  $('qdiiBody').innerHTML =
+    '<div class="det-sec">场内 ETF 溢价率 <span class="note">越低越值得买 · 首行为最优</span></div>'
+      + '<div class="det-tbl">' + head('溢价率') + qdiiRowsHTML(etf, '溢价率', 'prem', (v) => '+' + v.toFixed(2) + '%', true) + '</div>'
+    + '<div class="det-sec">场外 QDII 日限额 <span class="note">纳指100 / 标普500 系 · 越多越好买</span></div>'
+      + '<div class="det-tbl">' + head('日限额') + qdiiRowsHTML(z, '日累计限定金额', 'quota', (v) => Math.round(v) + ' 元', false) + '</div>'
+    + '<div class="det-sec">场外主动型 QDII 日限额</div>'
+      + '<div class="det-tbl">' + head('日限额') + qdiiRowsHTML(za, '日累计限定金额', 'quota', (v) => Math.round(v) + ' 元', false) + '</div>';
+  $('qdiiMask').classList.add('on');
 }
 
 /* ───────────── 资产板块设置 ───────────── */
@@ -649,6 +675,13 @@ function renderCfgPanel() {
 
 function setupDataMaint() {
   $('rowDataMaint').addEventListener('click', () => dmOpen());
+  /* QDII 明细弹层 */
+  $('qdiiClose').addEventListener('click', () => $('qdiiMask').classList.remove('on'));
+  $('qdiiMask').addEventListener('click', (e) => { if (e.target === $('qdiiMask')) $('qdiiMask').classList.remove('on'); });
+  $('qdiiGo').addEventListener('click', () => {
+    $('qdiiMask').classList.remove('on');
+    go('https://qdii-nav-tracker.hellohopo.dpdns.org/', 'QDII 净值跟踪');
+  });
   $('editCancel').addEventListener('click', closeCellEdit);
   $('editMask').addEventListener('click', (e) => { if (e.target === $('editMask')) closeCellEdit(); });
   $('editOk').addEventListener('click', () => {
@@ -719,14 +752,10 @@ function setupMine() {
 
   $('rowSync').addEventListener('click', () => go(INV_URL, '个人资产管理'));
 
-  /* 外观：三选一（跟随系统 / 浅色 / 深色）—— 用弹层里的按钮切换 */
-  $('rowTheme').addEventListener('click', () => {
-    const seg = ['auto', 'light', 'dark'];
-    const labels = { auto: '跟随系统', light: '浅色', dark: '深色' };
-    const opts = seg.map((m) => (THEME === m ? '● ' : '○ ') + '[' + m + '] ' + labels[m]).join('\n');
-    sheet('外观', '当前：' + labels[THEME] + '\n\n点下面的按钮切换，或直接回复 auto / light / dark：\n\n' + opts);
-    $('sheetCopy').style.display = 'none';
-  });
+  /* 外观：打开可点选项弹层 */
+  $('rowTheme').addEventListener('click', openThemeDialog);
+  $('themeClose').addEventListener('click', () => $('themeMask').classList.remove('on'));
+  $('themeMask').addEventListener('click', (e) => { if (e.target === $('themeMask')) $('themeMask').classList.remove('on'); });
 
   /* 诊断信息（增强）：一键复制 + 连通性自检 */
   $('rowDiag').addEventListener('click', async () => {

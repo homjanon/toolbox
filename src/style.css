@@ -44,7 +44,12 @@ body {
 
 /* ── 顶栏：标题居中 ── */
 .topbar {
-  flex: none; height: 48px; background: var(--card);
+  flex: none;
+  /* Android 15 起强制 edge-to-edge：状态栏透明，顶栏必须自己留出状态栏高度，
+     否则标题会被状态栏图标压住、且状态栏区域会露出系统底色（深色模式下突兀）。 */
+  padding-top: env(safe-area-inset-top, 0px);
+  height: calc(48px + env(safe-area-inset-top, 0px));
+  background: var(--card);
   display: flex; align-items: center; justify-content: center;
   border-bottom: 1px solid var(--line);
 }
@@ -154,7 +159,7 @@ body {
 /* ── 弹层（诊断 / 关于） ── */
 .mask {
   display: none; position: fixed; inset: 0; background: rgba(18,22,28,.45);
-  z-index: 20; align-items: center; justify-content: center; padding: 24px;
+  z-index: 60;   /* 必须高于全屏层 .dm(40)，否则弹层被遮住＝"点了没反应" */ align-items: center; justify-content: center; padding: 24px;
 }
 .mask.on { display: flex; }
 .sheet {
@@ -374,3 +379,37 @@ body {
   font: 12.4px/1.6 ui-monospace, Consolas, monospace;
   white-space: pre; overflow-wrap: normal; overflow-x: auto;
 }
+
+/* ═══════════ 外观选项行（v0.13）═══════════ */
+.optlist { margin: 2px 0 4px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.optrow {
+  display: flex; align-items: center; gap: 11px; padding: 14px 15px;
+  background: var(--card); border-bottom: 1px solid var(--line-2);
+  font-size: 14.2px; cursor: pointer;
+}
+.optrow:last-child { border-bottom: 0; }
+.optrow:active { background: var(--card2); }
+.optrow .ck { width: 20px; flex: none; color: var(--blue); font-weight: 700; font-size: 15px; }
+.optrow.sel { color: var(--blue); font-weight: 600; }
+.optrow .sub2 { margin-left: auto; font-size: 11.4px; color: var(--ink4); font-weight: 400; }
+
+/* ═══════════ QDII 明细表格（v0.13）═══════════ */
+.sheet.detail { max-width: 480px; max-height: 84vh; display: flex; flex-direction: column; padding: 18px 18px 14px; }
+.sheet.detail h2 { margin: 0 0 3px; }
+.det-sub { font-size: 11.6px; color: var(--ink4); margin-bottom: 12px; }
+.det-scroll { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.det-sec { font-size: 12px; color: var(--ink3); font-weight: 600; margin: 14px 0 7px; display: flex; align-items: baseline; gap: 6px; }
+.det-sec:first-child { margin-top: 0; }
+.det-sec .note { font-weight: 400; color: var(--ink4); font-size: 10.8px; }
+.det-tbl { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+.det-tr { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line-2); font-size: 12.5px; }
+.det-tr:last-child { border-bottom: 0; }
+.det-tr.head { background: var(--card2); color: var(--ink3); font-size: 10.9px; font-weight: 600; }
+.det-tr .nm { flex: 1; min-width: 0; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.det-tr.head .nm, .det-tr.head .vv { color: var(--ink3); }
+.det-tr .vv { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 62px; text-align: right; }
+.det-tr .vv.prem { color: var(--up); }
+.det-tr .vv.quota { color: var(--blue); }
+.det-tr.best { background: var(--green-l); }
+.det-tr.best .nm { font-weight: 600; }
+.det-empty { font-size: 12.4px; color: var(--ink4); padding: 10px 12px; }
