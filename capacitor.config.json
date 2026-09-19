@@ -14,12 +14,5 @@
       "*.github.io",
       "news.google.com"
     ]
-  },
-  "plugins": {
-    "StatusBar": {
-      "overlaysWebView": true,
-      "style": "DEFAULT",
-      "backgroundColor": "#ffffff"
-    }
   }
 }

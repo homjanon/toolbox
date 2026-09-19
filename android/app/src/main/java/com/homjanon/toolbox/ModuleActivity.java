@@ -40,11 +40,12 @@ public class ModuleActivity extends AppCompatActivity {
 
     private WebView webView;
 
-    public static void start(Context c, String url, String name) {
-        Intent i = new Intent(c, ModuleActivity.class);
-        i.putExtra("url", url);
-        i.putExtra("name", name == null ? "" : name);
-        c.startActivity(i);
+    public static void start(Context ctx, String url, String name, String theme) {
+        Intent it = new Intent(ctx, ModuleActivity.class);
+        it.putExtra("url", url);
+        it.putExtra("name", name);
+        it.putExtra("theme", theme);
+        ctx.startActivity(it);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -53,10 +54,14 @@ public class ModuleActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         String url = getIntent().getStringExtra("url");
+        /* 主题由主页透传（模块页自己读不到 App 内设置）→ 用于设置系统栏与留白色，
+           避免深色网页下顶部/底部露出浅色带 */
+        boolean dark = "dark".equals(getIntent().getStringExtra("theme"));
+        int barColor = dark ? 0xFF171B22 : 0xFFFFFFFF;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFFFFFFF);
+        root.setBackgroundColor(barColor);
         // 注意：这里不能 setFitsSystemWindows(true)，否则下方 insets 监听器失效
 
         /* ── WebView ── */
@@ -80,6 +85,22 @@ public class ModuleActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+
+        /* 系统栏配色：CSS 管不到状态栏/导航条，必须由原生设置 */
+        try {
+            Window w = getWindow();
+            w.setStatusBarColor(barColor);
+            w.setNavigationBarColor(barColor);
+            View dv = w.getDecorView();
+            int flags = dv.getSystemUiVisibility();
+            if (dark) {
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            } else {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            }
+            dv.setSystemUiVisibility(flags);
+        } catch (Exception ignored) {
+        }
 
         /* 状态栏 / 手势条 insets：顶栏避让状态栏，底部避让手势条（各 Android 版本一致生效） */
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {

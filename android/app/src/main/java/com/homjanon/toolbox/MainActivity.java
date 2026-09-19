@@ -34,9 +34,9 @@ public class MainActivity extends BridgeActivity {
     /** 暴露给网页的原生兜底接口（与 Capacitor 插件系统完全独立，Capacitor 内部怎么变都不影响） */
     private class NativeBridge {
         @JavascriptInterface
-        public void openModule(final String url, final String name) {
+        public void openModule(final String url, final String name, final String theme) {
             if (url == null || url.isEmpty()) return;
-            runOnUiThread(() -> ModuleActivity.start(MainActivity.this, url, name));
+            runOnUiThread(() -> ModuleActivity.start(MainActivity.this, url, name, theme));
         }
     }
 

@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { Preferences } from '@capacitor/preferences';
 import { MODULES } from './modules.mjs';
 
-const APP_VERSION = 'v0.13';
+const APP_VERSION = 'v0.14';
 const PROXY = 'https://proxy.hellohopo.dpdns.org/?url=';
 const SRC_NEWS = 'https://raw.githubusercontent.com/homjanon/news-feed/main/docs/';
 const SRC_MARKET = 'https://market-live.hellohopo.dpdns.org/api/data';
@@ -39,9 +39,21 @@ function effectiveTheme() {
 function applyTheme() {
   const eff = effectiveTheme();
   document.documentElement.setAttribute('data-theme', eff);
+  const dark = eff === 'dark';
+  const bar = dark ? '#171b22' : '#ffffff';
+
+  /* ① 官方插件：状态栏图标明暗 + 背景色
+     ⚠️ 这些方法返回 Promise —— 用 try/catch 捕获不到 rejection，必须 .catch()，
+     否则调用失败是完全静默的（本项目就栽过这个）。 */
   if (inApp) {
-    try { StatusBar.setStyle({ style: eff === 'dark' ? Style.Dark : Style.Light }); } catch (e) { /* 忽略 */ }
-    try { StatusBar.setBackgroundColor({ color: eff === 'dark' ? '#171b22' : '#ffffff' }); } catch (e) { /* 忽略 */ }
+    StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light })
+      .catch((e) => console.warn('[theme] setStyle 失败:', e && e.message));
+    StatusBar.setBackgroundColor({ color: bar })
+      .catch((e) => console.warn('[theme] setBackgroundColor 失败:', e && e.message));
+    /* ② 自定义原生能力：状态栏 + 底部导航条
+       —— 底部手势条是系统组件，CSS 主题管不到，不设就会在深色下留一条浅色带 */
+    ModuleLauncher.setSystemBars({ status: bar, nav: bar, lightIcon: !dark })
+      .catch((e) => console.warn('[theme] setSystemBars 失败:', e && e.message));
   }
   const el = $('themeLabel');
   if (el) el.textContent = THEME === 'auto' ? '跟随系统' : (THEME === 'dark' ? '深色' : '浅色');
@@ -120,6 +132,11 @@ const FUND_NAMES = {
   '019736': '宝盈纳指100A', '019737': '宝盈纳指100C', '018043': '天弘纳指100A',
   '018044': '天弘纳指100C', '019441': '万家纳指100A', '019442': '万家纳指100C',
   '017642': '摩根标普500美钞', '019305': '摩根标普500C', '160213': '国泰纳指100（场外）',
+  /* 场外主动型 QDII —— 对应 portfolio 的 HOT_GLOBAL_QDII 固定清单（11 只），此处用精简简称 */
+  '002891': '华夏移动互联', '008254': '华宝致远', '008706': '建信富时100',
+  '014002': '浦银安盛', '015016': '华安德国DAX', '015202': '汇添富全球',
+  '016702': '银华海外数字', '018147': '建信新兴', '021277': '广发全球',
+  '021540': '华安法国CAC40', '021842': '国富全球科技',
 };
 
 let CFG = { ...DEFAULT_CFG };
@@ -253,12 +270,13 @@ async function pruneNewsCache() {
 
 /* ───────────── 打开模块（原生容器） ───────────── */
 async function openModule(url, name) {
+  const theme = effectiveTheme();     /* 模块页据此设置系统栏与留白色，避免深色下露出浅色带 */
   const n = window.AndroidToolbox;
   if (n && typeof n.openModule === 'function') {
-    try { n.openModule(url, name); return true; } catch (e) { /* 落到下一条 */ }
+    try { n.openModule(url, name, theme); return true; } catch (e) { /* 落到下一条 */ }
   }
   try {
-    await ModuleLauncher.open({ url, name });
+    await ModuleLauncher.open({ url, name, theme });
     return true;
   } catch (err) {
     const msg = (err && (err.message || err.errorMessage || err.code)) || String(err);

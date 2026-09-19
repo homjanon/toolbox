@@ -45,10 +45,10 @@ body {
 /* ── 顶栏：标题居中 ── */
 .topbar {
   flex: none;
-  /* Android 15 起强制 edge-to-edge：状态栏透明，顶栏必须自己留出状态栏高度，
-     否则标题会被状态栏图标压住、且状态栏区域会露出系统底色（深色模式下突兀）。 */
-  padding-top: env(safe-area-inset-top, 0px);
-  height: calc(48px + env(safe-area-inset-top, 0px));
+  /* ⚠️ 本 App 已在 styles.xml 里 windowOptOutEdgeToEdgeEnforcement=true + fitsSystemWindows=true，
+     系统会把内容推到状态栏下方 —— 所以这里【不能】再加 env(safe-area-inset-top)，
+     否则同一高度留两次、整个页面下移。状态栏颜色由原生 setSystemBars 控制。 */
+  height: 48px;
   background: var(--card);
   display: flex; align-items: center; justify-content: center;
   border-bottom: 1px solid var(--line);
@@ -142,7 +142,7 @@ body {
 /* ── 底部 Tab 栏 ── */
 .tabbar {
   flex: none; display: flex; background: var(--card); border-top: 1px solid var(--line);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  height: 58px;   /* 系统已避让底部手势条，无需再留 safe-area */
 }
 .tab {
   flex: 1; border: 0; background: none; cursor: pointer; padding: 7px 0 6px;
